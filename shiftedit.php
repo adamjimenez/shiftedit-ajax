@@ -1,8 +1,16 @@
 <?php
+/*
+Used by ShiftEdit.net to connect to server and perform file ops over http
+Author: Adam Jimenez <adam@shiftcreate.com>
+Last Modified: 18/06/2013
+
+Edit the username and password below to enable basic authentication
+*/
+
 //config
 $username = '';
 $password = '';
-$dir = dirname(__FILE__).'/../';
+$dir = dirname(__FILE__);
 
 //api version
 $version = '1';
