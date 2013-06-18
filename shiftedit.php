@@ -224,7 +224,7 @@ class local{
 		while (false !== ($entry = $d->read())) {
 			$items[] = array(
 				'name' => $entry,
-				'permsn' => substr(decoct( fileperms($entry) ), 2);,
+				'permsn' => substr(decoct( fileperms($entry) ), 2),
 				'size' => filesize($entry),
 				'modified' => filemtime($entry),
 				'type' => is_dir($entry) ? 'folder' : 'file',
@@ -269,7 +269,7 @@ class local{
 		$this->startedAt = time();
 		return $this->search_nodes($s, $path, $file_extensions);
 	}
-
+substr(decoct( fileperms($entry) ), 2),
 	function send_msg($id , $msg) {
 		echo "id: $id" . PHP_EOL;
 		echo "data: {\n";
