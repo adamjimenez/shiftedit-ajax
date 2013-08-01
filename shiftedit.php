@@ -479,8 +479,7 @@ $server = new local();
 
 switch( $_POST['cmd'] ){
 	case 'save':
-		$server->put($_POST['file'], $_POST['content']);
-		$response['success'] = true;
+		$response['success'] = $server->put($_POST['file'], $_POST['content']);
 		print json_encode($response);
 	break;
 
