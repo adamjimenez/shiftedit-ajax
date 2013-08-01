@@ -10,7 +10,7 @@ Edit the username and password below to enable basic authentication
 //config
 $username = '';
 $password = '';
-$dir = dirname(__FILE__);
+$dir = dirname(__FILE__).'/';
 
 //api version
 $version = '1';
