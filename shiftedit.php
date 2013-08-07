@@ -13,7 +13,7 @@ $password = '';
 $dir = dirname(__FILE__).'/';
 
 //api version
-$version = '1';
+$version = '1.01';
 
 //set error level
 error_reporting(E_ALL ^ E_NOTICE);
@@ -314,7 +314,7 @@ function so($a, $b) //sort files
 	}
 }
 
-function get_nodes($path, $paths)
+function get_nodes($path, $paths=array())
 {
 	global $server;
 
@@ -478,6 +478,14 @@ if( $_POST['server_type'] ){
 $server = new local();
 
 switch( $_POST['cmd'] ){
+	case 'test':
+		if( get_nodes('/') ){
+			echo '{"success":true}';
+		}else{
+			echo '{"success":false,"error":"Cannot list files"}';
+		}
+	break;
+
 	case 'save':
 		$response['success'] = $server->put($_POST['file'], $_POST['content']);
 		print json_encode($response);
