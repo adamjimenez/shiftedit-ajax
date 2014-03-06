@@ -13,6 +13,10 @@ $username = 'test';
 $password = 'test';
 $dir = dirname(__FILE__).'/';
 
+//restrict access by ip
+$ip_restrictions = false;
+$ips = array();
+
 //api version
 $version = '1.01';
 
@@ -39,6 +43,11 @@ if ($_SERVER['REQUEST_METHOD'] == 'OPTIONS') {
 		header("Access-Control-Allow-Headers: {$_SERVER['HTTP_ACCESS_CONTROL_REQUEST_HEADERS']}");
 	}
 	exit;
+}
+
+//ip restrictions
+if( $ip_restrictions and !in_array($_SERVER['REMOTE_ADDR'], $ips) ){
+    die('{"success":false,"error":"access denied"}');
 }
 
 //authentication
