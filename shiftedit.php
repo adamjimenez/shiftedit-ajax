@@ -2,71 +2,28 @@
 /*
 Used by ShiftEdit.net to connect to server and perform file ops over http
 Author: Adam Jimenez <adam@shiftcreate.com>
-Last Modified: 18/06/2013
+Last Modified: 06/03/2014
 
-Edit the username and password below to enable basic authentication
+Edit the username and password below to enable authentication
 */
 
 //config
-$username = '';
-$password = '';
+$username = 'test';
+$password = 'test';
 $dir = dirname(__FILE__).'/';
 
 //api version
 $version = '1.01';
 
+//cors origin
+$origin = 'https://shiftedit.net';
+
 //set error level
 error_reporting(E_ALL ^ E_NOTICE);
 
-//basic authentication
-
-if( $username ){
-	// function to parse the http auth header
-	function http_digest_parse($txt)
-	{
-		// protect against missing data
-		$needed_parts = array('nonce'=>1, 'nc'=>1, 'cnonce'=>1, 'qop'=>1, 'username'=>1, 'uri'=>1, 'response'=>1);
-		$data = array();
-		$keys = implode('|', array_keys($needed_parts));
-	
-		preg_match_all('@(' . $keys . ')=(?:([\'"])([^\2]+?)\2|([^\s,]+))@', $txt, $matches, PREG_SET_ORDER);
-	
-		foreach ($matches as $m) {
-			$data[$m[1]] = $m[3] ? $m[3] : $m[4];
-			unset($needed_parts[$m[1]]);
-		}
-	
-		return $needed_parts ? false : $data;
-	}
-	
-	if (empty($_SERVER['PHP_AUTH_DIGEST'])) {
-		header('HTTP/1.1 401 Unauthorized');
-		header('WWW-Authenticate: Digest realm="'.$realm.'",qop="auth",nonce="'.uniqid().'",opaque="'.md5($realm).'"');
-		die('login required');
-	}
-	
-	// analyze the PHP_AUTH_DIGEST variable
-	if ( !($data = http_digest_parse($_SERVER['PHP_AUTH_DIGEST'])) || $username !== $data['username'] ){
-		header('HTTP/1.1 401 Unauthorized');
-		header('WWW-Authenticate: Digest realm="'.$realm.'",qop="auth",nonce="'.uniqid().'",opaque="'.md5($realm).'"');
-		die('Incorrect username');
-	}
-	
-	// generate the valid response
-	$A1 = md5($data['username'] . ':' . $realm . ':' . $password);
-	$A2 = md5($_SERVER['REQUEST_METHOD'].':'.$data['uri']);
-	$valid_response = md5($A1.':'.$data['nonce'].':'.$data['nc'].':'.$data['cnonce'].':'.$data['qop'].':'.$A2);
-	
-	if ($data['response'] != $valid_response){
-		header('HTTP/1.1 401 Unauthorized');
-		header('WWW-Authenticate: Digest realm="'.$realm.'",qop="auth",nonce="'.uniqid().'",opaque="'.md5($realm).'"');
-		die('Incorrect password');
-	}
-}
-
 // CORS Allow from shiftedit
 if (isset($_SERVER['HTTP_ORIGIN'])) {
-	header('Access-Control-Allow-Origin: https://shiftedit.net');
+	header('Access-Control-Allow-Origin: '.$origin);
 	header('Access-Control-Allow-Credentials: true');
 	header('Access-Control-Max-Age: 86400');
 }
@@ -81,6 +38,13 @@ if ($_SERVER['REQUEST_METHOD'] == 'OPTIONS') {
 		header("Access-Control-Allow-Headers: {$_SERVER['HTTP_ACCESS_CONTROL_REQUEST_HEADERS']}");
 	}
 	exit;
+}
+
+//authentication
+if( $username ){
+    if( $username!==$_POST['user'] or sha1($password)!==$_POST['pass'] ){
+        die('{"success":false,"error":"Login incorrect"}');
+    }
 }
 
 header('Content-Type: application/json, charset=utf-8');
@@ -314,7 +278,7 @@ function so($a, $b) //sort files
 	}
 }
 
-function get_nodes($path, $paths=array())
+function get_nodes($path, $paths)
 {
 	global $server;
 
@@ -478,16 +442,20 @@ if( $_POST['server_type'] ){
 $server = new local();
 
 switch( $_POST['cmd'] ){
-	case 'test':
-		if( get_nodes('/') ){
-			echo '{"success":true}';
-		}else{
-			echo '{"success":false,"error":"Cannot list files"}';
-		}
-	break;
+    case 'test':
+        $files = $server->parse_raw_list('/');
+        $response['success'] = $files!==false;
+		print json_encode($response);
+    break;
 
 	case 'save':
-		$response['success'] = $server->put($_POST['file'], $_POST['content']);
+		if( $server->put($_POST['file'], $_POST['content']) ){
+		    $response['success'] = true;
+		}else{
+		    $response['success'] = false;
+		    $response['error'] = 'Failed saving '.$_POST['file'];
+		}
+		
 		print json_encode($response);
 	break;
 
