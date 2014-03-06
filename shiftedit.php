@@ -3,6 +3,7 @@
 Used by ShiftEdit.net to connect to server and perform file ops over http
 Author: Adam Jimenez <adam@shiftcreate.com>
 Last Modified: 06/03/2014
+URL: https://github.com/adamjimenez/shiftedit-ajax
 
 Edit the username and password below to enable authentication
 */
