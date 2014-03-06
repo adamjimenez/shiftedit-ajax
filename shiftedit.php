@@ -83,7 +83,7 @@ class local{
 		}
 
 		$path = $this->dir.$file;
-		return file_put_contents($path, $content);
+		return file_put_contents($path, $content)!==false;
 	}
 
 	function last_modified($file)
@@ -540,18 +540,9 @@ switch( $_POST['cmd'] ){
 	break;
 
 	case 'newfile':
-		$file=$_POST['file'];
-
-		$ext=file_ext($file);
-
 		$content='';
-		if( $ext!='html' and file_exists(dirname(__FILE__).'/blank_files/untitled.'.$ext) ){
-			$content=file_get_contents(dirname(__FILE__).'/blank_files/untitled.'.$ext);
-		}elseif( $ext=='html' ){
-			$content=$_SESSION['prefs']['defaultHTML'] ? $_SESSION['prefs']['defaultHTML'] : file_get_contents(dirname(__FILE__).'/blank_files/untitled.html');
-		}
 
-		if( $server->put($file, $content) ){
+		if( $server->put($_POST['file'], $content) ){
 			echo '{"success":true}';
 		}else{
 			echo '{"success":false,"error":"Cannot create file"}';
