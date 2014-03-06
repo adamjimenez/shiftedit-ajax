@@ -55,6 +55,9 @@ if( $ip_restrictions and !in_array($_SERVER['REMOTE_ADDR'], $ips) ){
 //authentication
 if( $username ){
     if( $username!==$_POST['user'] or sha1($password)!==$_POST['pass'] ){
+        //delay to protect against brute force attack
+        sleep(1);
+        
         die('{"success":false,"error":"Login incorrect"}');
     }
 }
