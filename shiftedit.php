@@ -15,7 +15,9 @@ $dir = dirname(__FILE__).'/';
 
 //restrict access by ip
 $ip_restrictions = false;
-$ips = array();
+
+//allowed ips. get your ip from https://www.google.co.uk/search?q=ip+address
+$ips = array('');
 
 //api version
 $version = '1.01';
