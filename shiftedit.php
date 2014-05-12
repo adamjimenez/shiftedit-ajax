@@ -118,10 +118,10 @@ class local{
 		return file_exists($file);
 	}
 
-	function chmod($mode,$file)
+	function chmod($file, $mode)
 	{
-		$file=$this->dir.$file;
-		return chmod($mode, $file);
+		$file = $this->dir.$file;
+		return chmod($file, $mode);
 	}
 
 	function rename($old_name, $new_name)
@@ -675,9 +675,9 @@ switch( $_POST['cmd'] ){
 	break;
 
 	case 'chmod':
-		$file=$_POST['file'];
+		$file = $_POST['file'];
 
-		if( $server->chmod(intval($_POST['mode'], 8), $file) ){
+		if( $server->chmod($file, intval($_POST['mode'], 8)) ){
 			echo '{"success":true}';
 		}else{
 			echo '{"success":false,"error":"Cannot chmod file"}';
