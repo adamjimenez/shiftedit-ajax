@@ -281,7 +281,8 @@ function basename_safe($path){
 }
 
 function file_ext($file){
-	return strtolower(end(explode('.', $file)));
+	$tmp = explode('.', $file);
+	return strtolower(end($tmp));
 }
 
 function so($a, $b) //sort files
