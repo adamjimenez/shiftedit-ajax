@@ -2,16 +2,17 @@
 /*
 Used by ShiftEdit.net to connect to server and perform file ops over http
 Author: Adam Jimenez <adam@shiftcreate.com>
-Last Modified: 06/03/2014
 URL: https://github.com/adamjimenez/shiftedit-ajax
 
-Edit the username and password below to enable authentication
+Edit the username and password below
 */
 
 //config
-$username = 'test';
-$password = 'test';
-$dir = dirname(__FILE__).'/';
+$username = 'test'; //username or ftp username
+$password = 'test'; //password or ftp password
+$dir = '/'; //path to files e.g. dirname(__FILE__).'/';
+$server_type = 'ftp'; //local or ftp. local requires webserver to have write permissions to files.
+$pasv = true; //pasv mode for ftp
 
 //restrict access by ip
 $ip_restrictions = false;
@@ -20,7 +21,7 @@ $ip_restrictions = false;
 $ips = array('');
 
 //api version
-$version = '1.01';
+$version = '1.02';
 
 //cors origin
 $origin = 'https://shiftedit.net';
@@ -57,14 +58,57 @@ if( $username ){
     if( $username!==$_POST['user'] or sha1($password)!==$_POST['pass'] ){
         //delay to protect against brute force attack
         sleep(1);
-        
         die('{"success":false,"error":"Login incorrect"}');
     }
 }
 
 header('Content-Type: application/json, charset=utf-8');
 
-class local{
+abstract class server
+{	
+	function chmod_num($permissions)
+	{
+		$mode = 0;
+
+		if ($permissions[1] == 'r') $mode += 0400;
+		if ($permissions[2] == 'w') $mode += 0200;
+		if ($permissions[3] == 'x') $mode += 0100;
+		else if ($permissions[3] == 's') $mode += 04100;
+		else if ($permissions[3] == 'S') $mode += 04000;
+
+		if ($permissions[4] == 'r') $mode += 040;
+		if ($permissions[5] == 'w') $mode += 020;
+		if ($permissions[6] == 'x') $mode += 010;
+		else if ($permissions[6] == 's') $mode += 02010;
+		else if ($permissions[6] == 'S') $mode += 02000;
+
+		if ($permissions[7] == 'r') $mode += 04;
+		if ($permissions[8] == 'w') $mode += 02;
+		if ($permissions[9] == 'x') $mode += 01;
+		else if ($permissions[9] == 't') $mode += 01001;
+		else if ($permissions[9] == 'T') $mode += 01000;
+
+		return sprintf('%o', $mode);
+	}
+
+	function server(){
+		//max upload size
+		$this->max_size = 20000000;	
+	}
+	
+	function send_msg($id , $msg) {
+		echo "id: $id" . PHP_EOL;
+		echo "data: {\n";
+		echo "data: \"msg\": \"$msg\", \n";
+		echo "data: \"id\": $id\n";
+		echo "data: }\n";
+		echo PHP_EOL;
+		ob_flush();
+		flush();
+	}
+}
+
+class local extends server{
 	function local()
 	{
 		global $dir;
@@ -170,31 +214,6 @@ class local{
 		}
 	}
 
-	function chmod_num($permissions)
-	{
-		$mode = 0;
-
-		if ($permissions[1] == 'r') $mode += 0400;
-		if ($permissions[2] == 'w') $mode += 0200;
-		if ($permissions[3] == 'x') $mode += 0100;
-		else if ($permissions[3] == 's') $mode += 04100;
-		else if ($permissions[3] == 'S') $mode += 04000;
-
-		if ($permissions[4] == 'r') $mode += 040;
-		if ($permissions[5] == 'w') $mode += 020;
-		if ($permissions[6] == 'x') $mode += 010;
-		else if ($permissions[6] == 's') $mode += 02010;
-		else if ($permissions[6] == 'S') $mode += 02000;
-
-		if ($permissions[7] == 'r') $mode += 04;
-		if ($permissions[8] == 'w') $mode += 02;
-		if ($permissions[9] == 'x') $mode += 01;
-		else if ($permissions[9] == 't') $mode += 01001;
-		else if ($permissions[9] == 'T') $mode += 01000;
-
-		return sprintf('%o', $mode);
-	}
-
 	function parse_raw_list( $path )
 	{
 		$path = $this->dir.$path;
@@ -259,16 +278,413 @@ class local{
 		$this->startedAt = time();
 		return $this->search_nodes($s, $path, $file_extensions);
 	}
+}
 
-	function send_msg($id , $msg) {
-		echo "id: $id" . PHP_EOL;
-		echo "data: {\n";
-		echo "data: \"msg\": \"$msg\", \n";
-		echo "data: \"id\": $id\n";
-		echo "data: }\n";
-		echo PHP_EOL;
-		ob_flush();
-		flush();
+class ftp extends server{
+	function connect($host, $user, $pass, $port=21, $dir, $options)
+	{
+		$pasv = $options['pasv'] ?: true;
+		$logon_type = $options['logon_type'];
+		$encryption = $options['encryption'];
+		
+		if( !$host ){
+			$this->ftp_log[]='No domain';
+			return false;
+		}
+		
+		if( !$options['timeout'] ){
+			$options['timeout'] = 10;
+		}
+		
+		if( $encryption ){
+			$this->conn_id = ftp_ssl_connect($host,$port,$options['timeout']);
+		}else{
+			$this->conn_id = ftp_connect($host,$port,$options['timeout']);
+		}
+			
+		if( !$this->conn_id ){
+			$this->ftp_log[] = 'connection to host failed';
+			return false;
+		}
+		
+		if( $encryption ){
+			$result = ftp_login($this->conn_id, $user, $pass);
+		}else{
+			$this->command("USER ".$user);
+			$result = $this->command("PASS ".$pass);
+		}
+		
+		if( substr($result,0,3)=='530' ){
+			$this->require_password = true;
+		}
+		
+		if( $pasv ){
+			ftp_pasv($this->conn_id, true);
+		}
+		
+		$this->dir = $dir;
+		
+		if( substr($result,0,3)!=='230' and $result!==true ){
+			return false;
+		}elseif( $dir and !$this->chdir($dir) ){
+			$this->ftp_log[] = 'Dir does not exist: '.$dir;
+			return false;
+		}else{
+			return true;
+		}
+	}
+	
+	function command($command)
+	{
+		$result=ftp_raw($this->conn_id, $command);
+		
+		if( substr($command,0,5)=='PASS ' ){
+			$command='PASS ******';
+		}
+		
+		$this->ftp_log[]=$command;
+		$this->ftp_log=array_merge($this->ftp_log, $result);
+		
+		return trim(end($result));
+	}
+	
+	function chdir($path){
+		if( $path === $this->pwd ){
+			return true;
+		}else{
+			$this->ftp_log[] = 'chdir '.$path;
+			if( ftp_chdir($this->conn_id, $path) ){
+				$this->pwd = ftp_pwd($this->conn_id);
+				return true;
+			}else{
+				return false;
+			}
+		}
+	}
+	
+	function get($remote_file, $mode=FTP_BINARY, $resume_pos=null)
+	{
+		$remote_file = $this->dir.$remote_file;
+				
+		//check file size
+		$size = ftp_size($this->conn_id, $remote_file);
+		if( $size > $this->max_size ){
+			$this->ftp_log[] = 'File too large: '.file_size($size);
+			return false;
+		}		
+		
+		$tmpfname = tempnam("/tmp", "shiftedit_ftp_");
+		$handle = fopen($tmpfname, "w+");
+		
+		if( ftp_fget($this->conn_id, $handle, $remote_file, FTP_BINARY) ){
+			rewind($handle);
+			
+			$data = stream_get_contents($handle, $this->max_size);
+			fclose($handle);
+			unlink($tmpfname);
+		
+			return $data;
+		}else{
+			fclose($handle);
+			unlink($tmpfname);
+			
+			return false;	
+		}
+	}
+	
+	function put($file, $content)
+	{
+		$mode = FTP_BINARY;
+		$resume_pos = null;
+		
+		if( !$file ){
+			return false;
+		}
+		
+		$path = $this->dir.$file;
+		
+		$tmp = tmpfile();
+		if( fwrite($tmp, $content)===false ){
+			$this->ftp_log[]='can\'t write to filesystem';
+			return false;
+		}
+		rewind($tmp);
+		
+		$this->chdir(dirname($path));
+		
+		$result = ftp_fput($this->conn_id, basename_safe($path), $tmp, $mode, $resume_pos);
+		
+		//try deleting first
+		if( $result === false ){
+			$items = $this->parse_raw_list(dirname($file));
+			
+			$perms=0;
+			foreach( $items as $v ){
+				if( $v['name'] == basename($file) ){
+					$perms = $v['permsn'];
+				}
+			}
+	
+			//delete before save otherwise save does not work on some servers
+			$this->delete($file);
+		
+			if( $perms ){
+				$this->chmod(intval($perms, 8), $file);
+			}
+			
+			$result = ftp_fput($this->conn_id, basename_safe($path), $tmp, $mode, $resume_pos);
+		}
+		
+		fclose($tmp);
+		
+		return $result;
+	}
+	
+	function last_modified($file){
+		$file = $this->dir.$file;		
+		return ftp_mdtm($this->conn_id, $file);
+	}
+	
+	function size($file){
+		$file = $this->dir.$file;		
+		return ftp_size($this->conn_id, $file);
+	}
+	
+	function is_dir($dir)
+	{
+		$dir=$this->dir.$dir;
+		
+		// Get the current working directory
+		$origin = ftp_pwd($this->conn_id);
+	   
+		// Attempt to change directory, suppress errors
+		if (@$this->chdir($dir))
+		{
+			// If the directory exists, set back to origin
+			$this->chdir($origin);   
+			return true;
+		}
+	
+		// Directory does not exist
+		return false; 
+	}
+	
+	function file_exists($file)
+	{
+		$file=$this->dir.$file;
+		
+		if(ftp_size($this->conn_id, $file) == '-1'){
+			//folder?
+			if($this->chdir($file)){
+				return true;
+			}
+			return false;
+		}else{
+			return true;
+		}
+	}
+	
+	function chmod($mode,$file)
+	{
+		$file=$this->dir.$file;
+		
+		return ftp_chmod($this->conn_id,$mode, $file);
+	}
+	
+	function rename($old_name, $new_name)
+	{
+		$old_name=$this->dir.$old_name;
+		$new_name=$this->dir.$new_name;
+		
+		return ftp_rename($this->conn_id, $old_name, $new_name);
+	}
+	
+	function mkdir($dir)
+	{
+		$dir = $this->dir.$dir;		
+		return ftp_mkdir($this->conn_id, $dir) !== false ? true : false;
+	}
+	
+	function delete($file)
+	{
+		if( !$file ){
+			$this->ftp_log[]='no file';
+			return false;
+		}
+		
+		$path = $this->dir.$file;
+		
+		if( $this->is_dir($file) ){			
+			$list = $this->parse_raw_list($file);
+			foreach ($list as $item){
+				if( $item['name'] != '..' && $item['name'] != '.' ){
+					$this->delete($file.'/'.$item['name']);
+				}
+			}
+						
+			if( !$this->chdir(dirname($path)) ){
+				return false;
+			}
+			
+			$this->ftp_log[]= 'rmdir '.$path;
+			if( !ftp_rmdir($this->conn_id, basename($path)) ){
+				return false;
+			}else{
+				return true;
+			}
+		}else{
+			if( $this->file_exists($file) ){
+				$this->ftp_log[]='delete '.$path;
+				return ftp_delete($this->conn_id, $path);
+			}
+		}
+	}
+	
+	function parse_raw_list( $path )
+	{
+		$path = $this->dir.$path;
+
+		if( $path and !$this->chdir($path) ){
+			return false;
+		}
+
+		$array = ftp_rawlist($this->conn_id, '-a');
+		
+		if( $array === false ){
+			return false;
+		}
+		
+		$items=array();
+		
+		$systype = ftp_systype($this->conn_id);
+		
+		foreach( $array as $folder ){
+			$struc = array();
+			
+			if( preg_match("/([0-9]{2})-([0-9]{2})-([0-9]{2}) +([0-9]{2}):([0-9]{2})(AM|PM) +([0-9]+|<DIR>) +(.+)/",$folder,$split) ){				
+				if (is_array($split)) {
+					if ($split[3]<70) { $split[3]+=2000; } else { $split[3]+=1900; } // 4digit year fix
+					$struc['month'] = $split[1];
+					$struc['day'] = $split[2];
+			
+					if( strlen($split[3])==4 ){
+						$struc['year'] = $split[3];
+						$struc['time'] = '00:00';
+					}else{
+						$struc['year'] = date('Y');
+						$struc['time'] = $split[3];
+						
+						if (strtotime($struc['month'].' '.$struc['day'].' '.$struc['year'].' '.$struc['time'])>time()) {
+							$struc['year']-=1;
+						}
+					}
+					
+					$struc['modified'] = strtotime($struc['month'].' '.$struc['day'].' '.$struc['year'].' '.$struc['time']);
+					
+					$struc['name'] = $split[8];
+					
+					if ($split[7]=="<DIR>"){
+						$struc['type'] = 'folder';
+					}else{
+						$struc['type'] = 'file';
+						$struc['size'] = $split[7];
+					}
+				}
+			}else{
+				$current = preg_split("/[\s]+/",$folder,9);
+				
+				//print_r($current);
+				
+				$i = 0;
+				
+				$struc['perms'] = $current[0];
+				$struc['permsn'] = $this->chmod_num($struc['perms']);
+				$struc['number'] = $current[1];
+				$struc['owner'] = $current[2];					
+
+				$struc['group'] = $current[4];
+				
+				$struc['size'] = $current[(count($current)-5)];
+				$struc['month'] = $current[(count($current)-4)];
+				$struc['day'] = $current[(count($current)-3)];
+				$date = $current[(count($current)-2)];
+				$struc['name'] = str_replace('//', '', end($current));
+				
+				if( strlen($date)==4 ){
+					$struc['year'] = $date;
+					$struc['time'] = '00:00';
+				}else{
+					$struc['year'] = date('Y');
+					
+					if( strtotime($struc['month'].' '.$struc['day'])>time() ){
+						$struc['year']--;
+					}
+					
+					$struc['time'] = $date;
+				}
+					
+				$struc['modified'] = strtotime($struc['month'].' '.$struc['day'].' '.$struc['year'].' '.$struc['time']);				
+				
+				$struc['raw'] = $folder;
+				
+				if( substr($folder, 0, 1) == "d" ){
+					$struc['type'] = 'folder';
+				}elseif (substr($folder, 0, 1) == "l"){
+					$struc['type'] = 'link';
+					continue;
+				}else{
+					$struc['type'] = 'file';
+				}
+			}
+			
+			if( $struc['name'] ){
+				$items[] = $struc;
+			}
+		}
+		
+		return $items;
+	}
+	
+	function search_nodes($s, $path, $file_extensions)
+	{		
+		$list = $this->parse_raw_list($path);
+
+		if( !$list ){
+			return array();
+		}
+		
+		$items = array();
+
+		foreach( $list as $v ){
+			if( $v['type']!='file' ){
+				if( $v['name']=='.' or $v['name']=='..' or $v['name']=='.svn' ){
+					continue;
+				}
+				
+				$arr = $this->search_nodes($s, $path.$v['name'].'/', $file_extensions);
+				
+				$items = array_merge($items,$arr);
+			}else{
+				if( strstr($v['name'], $s) and in_array(file_ext($v['name']), $file_extensions) ){
+					$items[] = $path.$v['name'];
+					
+					$this->send_msg($this->startedAt , $path.$v['name']);
+				}
+			}
+		}
+		
+		return $items;
+	}
+	
+	function search($s, $path, $file_extensions)
+	{
+		$this->startedAt = time();
+		return $this->search_nodes($s, $path, $file_extensions);
+	}
+	
+	function close()
+	{
+		ftp_close($this->conn_id);
 	}
 }
 
@@ -342,10 +758,6 @@ function get_nodes($path, $paths)
 
 			if( $expand	){
 				$files[$i]['expanded']=true;
-
-				if( $_GET['root']!=='false' ){
-					//$files[$i]['children']=get_nodes($path.$v['name'].'/', $paths);
-				}
 			}
 		}else{
 			$ext = file_ext(basename_safe($v['name']));
@@ -455,13 +867,25 @@ if( $_POST['server_type'] ){
 	);
 }
 
-$server = new local();
+if($server_type==='ftp'){
+	$server = new ftp();
+	$result = $server->connect('localhost', $username, $password, 21, $dir, array('pasv'=>$pasv));
+	if($result===false){
+		print_r($server->ftp_log);
+		exit;
+	}
+}else{
+	$server = new local();	
+}
 
 switch( $_POST['cmd'] ){
     case 'test':
         $files = $server->parse_raw_list('/');
         $response['success'] = $files!==false;
-		print json_encode($response);
+        if(!$response['success']){
+        	$response['error'] = 'Dir listing failed';
+        }
+		echo json_encode($response);
     break;
 
 	case 'save':
@@ -472,13 +896,13 @@ switch( $_POST['cmd'] ){
 		    $response['error'] = 'Failed saving '.$_POST['file'];
 		}
 		
-		print json_encode($response);
+		echo json_encode($response);
 	break;
 
 	case 'open':
 		$response['content'] = $server->get($_POST['file']);
 		$response['success'] = true;
-		print json_encode($response);
+		echo json_encode($response);
 	break;
 
 	case 'get':
@@ -487,8 +911,6 @@ switch( $_POST['cmd'] ){
 		}
 
 		$files=array();
-
-		//$_POST['path']=substr($_POST['path'],1);
 
 		if( $_POST['path'] == '/' ){
 			$_POST['path'] = '';
@@ -530,7 +952,7 @@ switch( $_POST['cmd'] ){
 		$response['success'] = true;
 		$response['files'] = list_nodes($_POST['path']);
 
-		print json_encode($response);
+		echo json_encode($response);
 	break;
 
 	case 'rename':
@@ -672,7 +1094,7 @@ switch( $_POST['cmd'] ){
 			}
 		}
 
-		print json_encode($response);
+		echo json_encode($response);
 	break;
 
 	case 'chmod':
@@ -709,7 +1131,7 @@ switch( $_POST['cmd'] ){
 			}
 		}
 
-		print json_encode($response);
+		echo json_encode($response);
 	break;
 
 	case 'saveByURL':
@@ -729,7 +1151,7 @@ switch( $_POST['cmd'] ){
 			}
 		}
 
-		print json_encode($response);
+		echo json_encode($response);
 	break;
 
 	case 'extract':
