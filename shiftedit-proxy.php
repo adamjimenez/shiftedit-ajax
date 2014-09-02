@@ -32,6 +32,15 @@ error_reporting(E_ALL ^ E_NOTICE);
 
 session_start();
 
+//prevent magic quotes
+if (get_magic_quotes_gpc()) {
+    function stripslashes_gpc(&$value){
+        $value = stripslashes($value);
+    }
+    array_walk_recursive($_GET, 'stripslashes_gpc');
+    array_walk_recursive($_POST, 'stripslashes_gpc');
+}
+
 // CORS Allow from shiftedit
 if (isset($_SERVER['HTTP_ORIGIN'])) {
 	header('Access-Control-Allow-Origin: '.$origin);
