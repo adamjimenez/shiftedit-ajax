@@ -14,6 +14,7 @@ $dir = '/httpdocs/'; //path to files e.g. dirname(__FILE__).'/';
 $server_type = 'ftp'; //local or ftp. local requires webserver to have write permissions to files.
 $pasv = true; //pasv mode for ftp
 $port = 21;
+$definitions = ''; //autocomplete definitions e.g. http://example.org/defs.json
 
 //restrict access by ip
 $ip_restrictions = false;
@@ -22,10 +23,10 @@ $ip_restrictions = false;
 $ips = array('');
 
 //api version
-$version = '1.03';
+$version = '1.04';
 
 //cors origin
-$origin = 'https://shiftedit.net';
+$origin = '{$origin}';
 
 //set error level
 error_reporting(E_ALL ^ E_NOTICE);
@@ -72,7 +73,7 @@ if( $username and !$_SESSION['shiftedit_logged_in'] ){
         sleep(1);
         die('{"success":false,"error":"Login incorrect"}');
     }
-	
+
 	$_SESSION['shiftedit_logged_in'] = true;
 }
 
@@ -119,6 +120,9 @@ abstract class server
 		echo PHP_EOL;
 		ob_flush();
 		flush();
+	}
+	
+	function close(){		
 	}
 }
 
@@ -803,7 +807,7 @@ function get_nodes($path, $paths)
 	return $files;
 }
 
-function get_paths($path){		
+function get_paths($path){
 	global $server, $size, $max_size;
 	$list = $server->parse_raw_list($path);
 
@@ -818,20 +822,20 @@ function get_paths($path){
 			if( $v['name']=='.' or $v['name']=='..' ){
 				continue;
 			}
-			
+
 			$size += $v['size'];
-			
+
 			if( $size > $max_size ){
 				return false;
 			}
-			
-			$arr = get_paths($path.$v['name'].'/');			
+
+			$arr = get_paths($path.$v['name'].'/');
 			$items = array_merge($items, $arr);
 		}else{
 			$items[] = $path.$v['name'];
 		}
 	}
-	
+
 	return $items;
 }
 
@@ -945,6 +949,7 @@ switch( $_POST['cmd'] ){
 	case 'save':
 		if( $server->put($_POST['file'], $_POST['content']) ){
 		    $response['success'] = true;
+		    $response['last_modified'] = $server->last_modified($_POST['file']);
 		}else{
 		    $response['success'] = false;
 		    $response['error'] = 'Failed saving '.$_POST['file'];
@@ -973,7 +978,7 @@ switch( $_POST['cmd'] ){
 		if( $_POST['path']=='' and $_GET['path'] ){ //used by save as
 			$files = get_nodes($_POST['path'], array(dirname($_GET['path']).'/'));
 		}else{ //preload paths
-			$files = get_nodes($_POST['path'], $paths);
+			$files = get_nodes($_POST['path'], $_SESSION['paths']);
 		}
 
 		//include root
@@ -1151,6 +1156,17 @@ switch( $_POST['cmd'] ){
 		echo json_encode($response);
 	break;
 
+	case 'download':
+		$file = $_POST['path'];
+
+		$data = $server->get($file);
+
+		header("Content-Type: application/octet-stream");
+		header("Content-Disposition: attachment; filename=\"".basename($file)."\"");
+		//header('Content-type: '.$row['type']);
+		print $data;
+	break;
+
 	case 'chmod':
 		$file = $_POST['file'];
 
@@ -1211,9 +1227,9 @@ switch( $_POST['cmd'] ){
 	case 'extract':
 		header('Content-Type: text/event-stream');
 		header('Cache-Control: no-cache');
-		
+
 		ignore_user_abort();
-		
+
 		$startedAt = time();
 		$file = $server->get($_GET['file'], true);
 		$za = new ZipArchive();
@@ -1235,80 +1251,99 @@ switch( $_POST['cmd'] ){
 			$complete++;
 		}
 	break;
-	
+
 	case 'compress':
 		if( $_GET['d'] ){
 			if( $_SESSION['download']['name'] ){
-				header("Content-Disposition: attachment; filename=" . urlencode($_SESSION['download']['name']));    
+				header("Content-Disposition: attachment; filename=" . urlencode($_SESSION['download']['name']));
 				header("Content-Type: application/octet-stream");
 				print file_get_contents($_SESSION['download']['file']);
 				unlink($_SESSION['download']['file']);
 				unset($_SESSION['download']);
 				exit;
 			}else{
-				die('no zip file');	
+				die('no zip file');
 			}
-		}	
-		
+		}
+
 		header('Content-Type: text/event-stream');
-		
+
 		$size = 0;
 		$max_size = 10000000;
-		
+
 		$id = time();
-		
-		$site = $_GET['site'];		
+
+		$site = $_GET['site'];
 		$file = $_GET['file'];
-		
+
 		$server->send_msg($id, 'Initializing');
-		
+
 		$is_dir = $server->is_dir($file);
-		
+
 		if( !$is_dir ){
 			$files = array($file);
-			
+
 			if( $server->size($file) > $max_size ){
 				$server->send_msg($id, 'File size limit exceeded '.$file);
 			}
-			
+
 		}else{
 			$files = get_paths($file.'/');
-		
+
 			if( !$files ){
 				$server->send_msg($id, 'File size limit exceeded');
 				exit;
 			}
 		}
-		
+
 		$zip_file = tempnam("/tmp", "shiftedit_zip_");
-		
+
 		$zip = new ZipArchive();
 		if ($zip->open($zip_file, ZipArchive::CREATE)!==TRUE) {
 			die("cannot open <$zip_file>\n");
 		}
-		
+
 		foreach( $files as $file ){
 			$server->send_msg($id, 'Compressing '.$file);
-			
+
 			$content = $server->get($file);
-			
+
 			if( $content!==false ){
-				$name = $is_dir ? substr($file, strlen(dirname($_GET['file']))+1) : $file;								
+				$name = $is_dir ? substr($file, strlen(dirname($_GET['file']))+1) : $file;
 				$zip->addFromString($name, $content);
 			}
 		}
-		
+
 		$zip->close();
 		$data = file_get_contents($zip_file);
-		
+
 		$_SESSION['download'] = array(
 			'name' => basename($_GET['file']).'.zip',
 			'file' => $zip_file
 		);
-		
+
 		$server->send_msg($id, 'done');
 	break;
-	
+
+	case 'definitions':
+		$response['success'] = true;
+		$json = file_get_contents($definitions);
+		$response['definitions'] = json_decode($json);
+	break;
+
+	case 'save_path':
+		if( $_POST['expand']!='false' ){
+			$_SESSION['paths'][] = $_POST['path'];
+			$_SESSION['paths'] = array_unique($_SESSION['paths']);
+		}else{
+			foreach($_SESSION['paths'] as $k=>$v ){
+				if( substr($v, 0, strlen($_POST['path'])) == $_POST['path'] ){
+					unset($_SESSION['paths'][$k]);
+				}
+			}
+		}
+	break;
+
 	default:
 		echo '{"success":false,"error":"No command"}';
 	break;
