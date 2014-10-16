@@ -26,7 +26,7 @@ $ips = array('');
 $version = '1.04';
 
 //cors origin
-$origin = '{$origin}';
+$origin = 'https://shiftedit.net';
 
 //set error level
 error_reporting(E_ALL ^ E_NOTICE);
