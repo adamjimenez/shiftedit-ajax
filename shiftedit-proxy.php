@@ -152,14 +152,19 @@ class local extends server{
 		return file_get_contents($path);
 	}
 
-	function put($file, $content)
+	function put($file, $content, $resume_pos=0)
 	{
 		if( !$file ){
 			return false;
 		}
 
 		$path = $this->dir.$file;
-		return file_put_contents($path, $content)!==false;
+	        $fp = fopen($path, 'w');
+	        fseek($fp, $resume_pos);
+	        $result = fwrite($fp, $content);
+	        fclose($fp);
+		
+		return $result > 0;
 	}
 
 	function last_modified($file)
