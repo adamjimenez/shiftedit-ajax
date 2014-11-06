@@ -23,7 +23,7 @@ $ip_restrictions = false;
 $ips = array('');
 
 //api version
-$version = '1.04';
+$version = '1.05';
 
 //cors origin
 $origin = 'https://shiftedit.net';
@@ -414,51 +414,58 @@ class ftp extends server{
 		}
 	}
 
-	function put($file, $content)
+	function put($file, $content, $resume_pos=0)
 	{
 		$mode = FTP_BINARY;
-		$resume_pos = null;
-
+		
 		if( !$file ){
 			return false;
 		}
-
+		
 		$path = $this->dir.$file;
-
+		
 		$tmp = tmpfile();
 		if( fwrite($tmp, $content)===false ){
 			$this->ftp_log[]='can\'t write to filesystem';
 			return false;
 		}
 		rewind($tmp);
-
+		
 		$this->chdir(dirname($path));
-
-		$result = ftp_fput($this->conn_id, basename_safe($path), $tmp, $mode, $resume_pos);
-
+		
+		if($resume_pos){
+		    ftp_raw($this->conn_id, "REST ".$resume_pos);
+		}
+		
+		$result = ftp_fput($this->conn_id, basename_safe($path), $tmp, $mode);
+		
 		//try deleting first
 		if( $result === false ){
 			$items = $this->parse_raw_list(dirname($file));
-
+			
 			$perms=0;
 			foreach( $items as $v ){
 				if( $v['name'] == basename($file) ){
 					$perms = $v['permsn'];
 				}
 			}
-
+	
 			//delete before save otherwise save does not work on some servers
 			$this->delete($file);
-
+		
 			if( $perms ){
 				$this->chmod(intval($perms, 8), $file);
 			}
-
-			$result = ftp_fput($this->conn_id, basename_safe($path), $tmp, $mode, $resume_pos);
+		
+    		if($resume_pos){
+    		    ftp_raw($this->conn_id, "REST ".$resume_pos);
+    		}
+			
+			$result = ftp_fput($this->conn_id, basename_safe($path), $tmp, $mode);
 		}
-
+		
 		fclose($tmp);
-
+		
 		return $result;
 	}
 
@@ -1106,7 +1113,18 @@ switch( $_POST['cmd'] ){
 
 		$response['success']=true;
 
-		if( isset($_POST['file']) and isset($_POST['content']) ){
+		if( $_POST['chunked'] ){
+		    $path = $_POST['path'].'/'.$_POST['resumableFilename'];
+		    $content = file_get_contents($_FILES['file']['tmp_name']);
+		    
+		    $resume_pos = ($_POST['resumableChunkNumber']-1) * $_POST['resumableChunkSize'];
+		    
+			if( $server->put($path, $content, $resume_pos) ){
+				//success
+			}else{
+				header('HTTP/1.0 500 Internal Server Error');
+			}
+		}elseif( isset($_POST['file']) and isset($_POST['content']) ){
 			$content = $_POST['content'];
 
 			if( substr($content,0,5)=='data:' ){
