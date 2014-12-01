@@ -13,7 +13,7 @@ $password = '{$password}'; //password or ftp password
 $dir = '{$dir}'; //path to files e.g. dirname(__FILE__).'/';
 $server_type = 'ftp'; //local, ftp or sftp. local requires webserver to have write permissions to files.
 $pasv = '{$pasv}'; //pasv mode for ftp
-$port = '{$port}';
+$port = '{$port}'; //usually 21 for ftp and 22 for sftp
 $definitions = '{$definitions}'; //autocomplete definitions e.g. http://example.org/defs.json
 $phpseclib_path = ''; //path to phpseclib for sftp, get from: https://github.com/phpseclib/phpseclib
 
