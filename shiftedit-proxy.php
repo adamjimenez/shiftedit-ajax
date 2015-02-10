@@ -12,9 +12,9 @@ $username = '{$username}'; //username or ftp username
 $password = '{$password}'; //password or ftp password
 $dir = '{$dir}'; //path to files e.g. dirname(__FILE__).'/';
 $server_type = 'ftp'; //local, ftp or sftp. local requires webserver to have write permissions to files.
-$pasv = '{$pasv}'; //pasv mode for ftp
-$port = '{$port}'; //usually 21 for ftp and 22 for sftp
-$definitions = '{$definitions}'; //autocomplete definitions e.g. http://example.org/defs.json
+$pasv = true; //pasv mode for ftp
+$port = 21; //usually 21 for ftp and 22 for sftp
+$definitions = ''; //autocomplete definitions e.g. http://example.org/defs.json
 $phpseclib_path = ''; //path to phpseclib for sftp, get from: https://github.com/phpseclib/phpseclib
 
 //restrict access by ip
@@ -27,7 +27,7 @@ $ips = array('');
 $version = '1.06';
 
 //cors origin
-$origin = '{$origin}';
+$origin = 'https://shiftedit.net';
 
 //set error level
 error_reporting(E_ALL ^ E_NOTICE);
