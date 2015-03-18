@@ -8,6 +8,7 @@ Edit the username and password below
 */
 
 //config
+$host = 'localhost';
 $username = '{$username}'; //username or ftp username
 $password = '{$password}'; //password or ftp password
 $dir = '{$dir}'; //path to files e.g. dirname(__FILE__).'/';
@@ -1210,7 +1211,7 @@ if( $_POST['server_type'] ){
 switch($server_type){
     case 'ftp':
         $server = new ftp();
-        $result = $server->connect('localhost', $username, $password, $port, $dir, array('pasv'=>$pasv));
+        $result = $server->connect($host, $username, $password, $port, $dir, array('pasv'=>$pasv));
         if($result===false){
             print_r($server->ftp_log);
             exit;
@@ -1218,7 +1219,7 @@ switch($server_type){
     break;
     case 'sftp':
         $server = new sftp();
-        $result = $server->connect('localhost', $username, $password, $port, $dir);
+        $result = $server->connect($host, $username, $password, $port, $dir);
         if($result===false){
             print_r($server->ftp_log);
             exit;
