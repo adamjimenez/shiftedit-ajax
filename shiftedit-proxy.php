@@ -1350,7 +1350,7 @@ switch( $_POST['cmd'] ){
         }else{
 
             if( $_POST['site'] and $_POST['site']!=$_GET['site'] and $_POST['isDir']!=='true' ){
-                $server_src = open_site($_POST['site']);
+                die('{"success":false,"error":"Cannot copy from different site in turbo mode"}');
             }else{
                 $server_src = $server;
             }
