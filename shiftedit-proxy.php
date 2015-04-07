@@ -1348,12 +1348,7 @@ switch( $_POST['cmd'] ){
         if( !$_POST['dest'] or !$_POST['path'] ){
             echo '{"success":false,"error":"Cannot create file"}';
         }else{
-
-            if( $_POST['site'] and $_POST['site']!=$_GET['site'] and $_POST['isDir']!=='true' ){
-                die('{"success":false,"error":"Cannot copy from different site in turbo mode"}');
-            }else{
-                $server_src = $server;
-            }
+            $server_src = $server;
 
             if( $_POST['isDir']=="true" ){
                 if( $_POST['dest'] and $server->file_exists($_POST['dest']) ){
