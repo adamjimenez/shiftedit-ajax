@@ -1253,28 +1253,28 @@ switch( $_POST['cmd'] ){
             $response['error'] = 'Failed saving '.$_POST['file'];
         }
         
-		if( file_ext($file)=='less' and file_exists('shiftedit-lessc.inc.php') ){
+		if( file_ext($_POST['file'])=='less' and file_exists('shiftedit-lessc.inc.php') ){
 			require_once('shiftedit-lessc.inc.php');
 
 			$less = new lessc;
 
 			try {
 				$_POST['content'] = $less->compile($_POST['content']);
-				$file = substr($file, 0, -5).'.css';
+				$file = substr($_POST['file'], 0, -5).'.css';
 				$server->put($file, $_POST['content'], $_POST['compileId'], $_POST['parent']);
 			} catch (exception $e) {
 				$response['success'] = false;
 				$response['error'] = 'Error compiling '.$e->getMessage();
 			}
-		}elseif( file_ext($file)=='scss' and file_exists('shiftedit-scss.inc.php') ){
+		}elseif( file_ext($_POST['file'])=='scss' and file_exists('shiftedit-scss.inc.php') ){
 			require_once('shiftedit-scss.inc.php');
 
 			$scss = new scssc();
-			$scss->setImportPaths(dirname($file));
+			$scss->setImportPaths(dirname($_POST['file']));
 
 			try {
 				$_POST['content'] = $scss->compile($_POST['content']);
-				$file = substr($file, 0, -5).'.css';
+				$file = substr($_POST['file'], 0, -5).'.css';
 				$server->put($file, $_POST['content'], $_POST['compileId'], $_POST['parent']);
 			} catch (exception $e) {
 				$response['success'] = false;
