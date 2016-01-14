@@ -129,6 +129,14 @@ abstract class server
         flush();
     }
 
+    function log($msg) {
+        $this->ftp_log[] = $msg;
+
+        if($this->startedAt) {
+        	send_msg($this->startedAt, $msg);
+        }
+    }
+
     function close(){
     }
 }
@@ -230,15 +238,15 @@ class local extends server{
 
             chdir('../');
 
+            $this->log('rmdir '.$this->pwd);
             if( !rmdir($path) ){
-                $this->log[]= 'rmdir '.$this->pwd;
                 return false;
             }else{
                 return true;
             }
         }else{
             if( $this->file_exists($file) ){
-                $this->log[]='delete '.$path;
+                $this->log('delete '.$path);
                 return unlink($path);
             }
         }
@@ -324,6 +332,11 @@ class ftp extends server{
 
         if( !$options['timeout'] ){
             $options['timeout'] = 10;
+        }
+
+        if(!function_exists('ftp_connect')){
+            $this->ftp_log[] = 'PHP FTP module is not installed';
+            return false;
         }
 
         if( $encryption ){
@@ -567,7 +580,7 @@ class ftp extends server{
                 return false;
             }
 
-            $this->ftp_log[]= 'rmdir '.$path;
+            $this->log('rmdir '.$path);
             if( !ftp_rmdir($this->conn_id, basename($path)) ){
                 return false;
             }else{
@@ -575,7 +588,7 @@ class ftp extends server{
             }
         }else{
             if( $this->file_exists($file) ){
-                $this->ftp_log[]='delete '.$path;
+                $this->log('delete '.$path);
                 return ftp_delete($this->conn_id, $path);
             }
         }
@@ -729,271 +742,643 @@ class ftp extends server{
     }
 }
 
-class sftp extends server{    
-    function sftp()
-    {
-        $this->debug = false;
-        
-        parent::__construct();
-        require_once('Net/SFTP.php');
-        
-        if( $this->debug ){
-            define('NET_SSH2_LOGGING', NET_SSH2_LOG_COMPLEX);
-        }
-    }
-    
-    function errorHandler($errno, $errstr, $errfile, $errline)
-    {        
-        if( $this->debug ){
-            print $errstr." in ";
-            print $errfile." on line ";
-            print $errline."\n";
-        }
-        
-        if( $errno===E_USER_NOTICE ){
-            $this->ftp_log[] = $errstr;
-            $this->failed = true;
-        }
-    }
+if ( $phpseclib_path) {
+    class sftp extends server{
+        function sftp()
+        {
+            $this->debug = false;
 
-    function connect($host, $user, $pass, $port=22, $dir, $options)
-    {
-        if( !$host ){
-            return false;
+            parent::__construct();
+            require_once('Net/SFTP.php');
+
+            if( $this->debug ){
+                define('NET_SSH2_LOGGING', NET_SSH2_LOG_COMPLEX);
+            }
         }
-        
-        $this->ftp_log = array();
-        $this->failed = false;
-        
-        $logon_type = $options['logon_type'];
-        
-        if( !$options['timeout'] ){
-            $options['timeout'] = 10;
+
+        function errorHandler($errno, $errstr, $errfile, $errline)
+        {
+            if( $this->debug ){
+                print $errstr." in ";
+                print $errfile." on line ";
+                print $errline."\n";
+            }
+
+            if( $errno===E_USER_NOTICE ){
+                $this->ftp_log[] = $errstr;
+                $this->failed = true;
+            }
         }
-        
-        set_error_handler(array($this, 'errorHandler'));
-        
-        $this->sftp = new Net_SFTP($host, $port, $options['timeout']);
-        
-        if( !$this->sftp ){
-            $this->ftp_log[] = 'connection to host failed';
-            $this->ftp_log[] = $this->sftp->getSFTPLog();
-            return false;
-        }
-        
-        if( $this->failed ){
-            return;
-        }
-        
-        if( $logon_type=='key' ){
-            if( !$private_key ){
-                $this->ftp_log[]='missing key - set a key from your account';
+
+        function connect($host, $user, $pass, $port=22, $dir, $options)
+        {
+            if( !$host ){
                 return false;
             }
 
-            require_once("Crypt/RSA.php");
+            $this->ftp_log = array();
+            $this->failed = false;
 
-            $pass = new Crypt_RSA();
+            $logon_type = $options['logon_type'];
 
-            if( !$pass->loadKey($private_key) ){
-                $this->ftp_log[] = 'invalid key';
+            if( !$options['timeout'] ){
+                $options['timeout'] = 10;
+            }
+
+            set_error_handler(array($this, 'errorHandler'));
+
+            $this->sftp = new Net_SFTP($host, $port, $options['timeout']);
+
+            if( !$this->sftp ){
+                $this->ftp_log[] = 'connection to host failed';
+                $this->ftp_log[] = $this->sftp->getSFTPLog();
                 return false;
             }
-        }
 
-        if( $this->sftp->login($user, $pass) === false ) {
-            $stars = '';
-
-            for( $i=0; $i<strlen($pass); $i++ ){
-                $stars.='*';
+            if( $this->failed ){
+                return;
             }
-            
-            $this->ftp_log[] = $this->sftp->getLog();
-            $this->ftp_log[] = $this->sftp->getSFTPLog();
-            
-            if( $logon_type == 'key' ){
-                $this->ftp_log[] = 'Can\'t connect with key';
-            }else{
-                $this->ftp_log[] = 'login incorrect<br>User: '.$user.'<br>Pass: '.$stars.'<br>'.$log;
-                $this->require_password = true;
+
+            if( $logon_type=='key' ){
+                if( !$private_key ){
+                    $this->ftp_log[]='missing key - set a key from your account';
+                    return false;
+                }
+
+                require_once("Crypt/RSA.php");
+
+                $pass = new Crypt_RSA();
+
+                if( !$pass->loadKey($private_key) ){
+                    $this->ftp_log[] = 'invalid key';
+                    return false;
+                }
             }
-            
-            return false;
-        }
 
-        $this->dir = $dir;
+            if( $this->sftp->login($user, $pass) === false ) {
+                $stars = '';
 
-        if( !$this->sftp ){
-            return false;
-        }elseif( $dir and !$this->sftp->stat($dir) ){
-            $this->ftp_log[] = 'Dir does not exist: '.$dir;
-            return false;
-        }else{
-            return true;
-        }
-    }
+                for( $i=0; $i<strlen($pass); $i++ ){
+                    $stars.='*';
+                }
 
-    function get($remote_file)
-    {
-        $remote_file = $this->dir.$remote_file;
-        
-        //check file size
-        $size = $this->sftp->size($remote_file);
-        if( $size > $this->max_size ){
-            $this->ftp_log[] = 'File too large: '.file_size($size);
-            return false;
-        }
+                $this->ftp_log[] = $this->sftp->getLog();
+                $this->ftp_log[] = $this->sftp->getSFTPLog();
 
-        $data = $this->sftp->get($remote_file);
-
-        if($data===false){
-            return false;
-        }
-
-        return $data;
-    }
-
-    function put($remote_file, $content, $resume_pos=-1)
-    {
-        $remote_file = $this->dir.$remote_file;
-        return $this->sftp->put($remote_file, $content, NET_SFTP_STRING, $resume_pos);
-    }
-
-    function last_modified($file)
-    {
-        $file = $this->dir.$file;
-        $stat = $this->sftp->stat($file);
-
-        return $stat['mtime'];
-    }
-
-    function size($file)
-    {
-        $file = $this->dir.$file;
-        return $this->sftp->size($file);
-    }
-
-    function is_dir($file)
-    {
-        $file = $this->dir.$file;
-        $stat = $this->sftp->stat($file);
-
-        return ($stat['type']==2) ? true : false;
-    }
-
-    function file_exists($file)
-    {
-        $file = $this->dir.$file;
-        $stat = $this->sftp->stat($file);
-
-        return $stat ? true : false;
-    }
-
-    function chmod($mode, $file)
-    {
-        $file = $this->dir.$file;
-
-        return $this->sftp->chmod($mode,$file);
-    }
-
-    function rename($old_name, $new_name)
-    {
-        $old_name = $this->dir.$old_name;
-        $new_name = $this->dir.$new_name;
-
-        return $this->sftp->rename($old_name, $new_name);
-    }
-
-    function mkdir($dir)
-    {
-        $dir = $this->dir.$dir;
-        return $this->sftp->mkdir($dir);
-    }
-
-    function delete($file)
-    {
-        if( !$file ){
-            return false;
-        }
-
-        $path = $this->dir.$file;
-
-        return $this->sftp->delete($path,true);
-    }
-
-    function parse_raw_list($subdir)
-    {
-        $path=$this->dir.$subdir;
-
-        $items = array();
-        $files = $this->sftp->rawlist($path);
-
-        // List all the files
-        $i=0;
-        foreach ($files as $file=>$stat) {
-            if( $file!= '.' and $file!= '..' ){
-                $items[$i]['name']=$file;
-                $items[$i]['permsn']=$stat['permissions'];
-
-                if( $stat['type']==1 ){
-                    $items[$i]['type']='file';
-                    $items[$i]['size']=$stat['size'];
-                }elseif( $stat['type']==2 ){
-                    $items[$i]['type']='folder';
+                if( $logon_type == 'key' ){
+                    $this->ftp_log[] = 'Can\'t connect with key';
                 }else{
-                    //ignore symlinks
-                    continue;    
+                    $this->ftp_log[] = 'login incorrect<br>User: '.$user.'<br>Pass: '.$stars.'<br>'.$log;
+                    $this->require_password = true;
                 }
 
-                $items[$i]['modified']=$stat['mtime'];
+                return false;
             }
-            $i++;
-        }
 
-        return $items;
-    }
+            $this->dir = $dir;
 
-    function search_nodes($s, $path, $file_extensions)
-    {
-        $list = $this->parse_raw_list($path);
-
-        if( !$list ){
-            return array();
-        }
-
-        $items = array();
-
-        foreach( $list as $v ){
-            if( $v['type']!='file' ){
-                if( $v['name']=='.' or $v['name']=='..' or $v['name']=='.svn' ){
-                    continue;
-                }
-
-                $arr = $this->search_nodes($s, $path.$v['name'].'/', $file_extensions);
-
-                $items=array_merge($items,$arr);
+            if( !$this->sftp ){
+                return false;
+            }elseif( $dir and !$this->sftp->stat($dir) ){
+                $this->ftp_log[] = 'Dir does not exist: '.$dir;
+                return false;
             }else{
-                if( strstr($v['name'], $s) and in_array(file_ext($v['name']), $file_extensions) ){
-                    $items[] = $path.$v['name'];
-
-                    $this->send_msg($this->startedAt , $path.$v['name']);
-                }
+                return true;
             }
         }
 
-        return $items;
-    }
+        function get($remote_file)
+        {
+            $remote_file = $this->dir.$remote_file;
 
-    function search($s, $path, $file_extensions)
-    {
-        return $this->search_nodes($s, $path, $file_extensions);
-    }
+            //check file size
+            $size = $this->sftp->size($remote_file);
+            if( $size > $this->max_size ){
+                $this->ftp_log[] = 'File too large: '.file_size($size);
+                return false;
+            }
 
-    function close()
-    {
-        if( $this->sftp ){
-            $this->sftp->__destruct();
+            $data = $this->sftp->get($remote_file);
+
+            if($data===false){
+                return false;
+            }
+
+            return $data;
         }
+
+        function put($remote_file, $content, $resume_pos=-1)
+        {
+            $remote_file = $this->dir.$remote_file;
+            return $this->sftp->put($remote_file, $content, NET_SFTP_STRING, $resume_pos);
+        }
+
+        function last_modified($file)
+        {
+            $file = $this->dir.$file;
+            $stat = $this->sftp->stat($file);
+
+            return $stat['mtime'];
+        }
+
+        function size($file)
+        {
+            $file = $this->dir.$file;
+            return $this->sftp->size($file);
+        }
+
+        function is_dir($file)
+        {
+            $file = $this->dir.$file;
+            $stat = $this->sftp->stat($file);
+
+            return ($stat['type']==2) ? true : false;
+        }
+
+        function file_exists($file)
+        {
+            $file = $this->dir.$file;
+            $stat = $this->sftp->stat($file);
+
+            return $stat ? true : false;
+        }
+
+        function chmod($mode, $file)
+        {
+            $file = $this->dir.$file;
+
+            return $this->sftp->chmod($mode,$file);
+        }
+
+        function rename($old_name, $new_name)
+        {
+            $old_name = $this->dir.$old_name;
+            $new_name = $this->dir.$new_name;
+
+            return $this->sftp->rename($old_name, $new_name);
+        }
+
+        function mkdir($dir)
+        {
+            $dir = $this->dir.$dir;
+            return $this->sftp->mkdir($dir);
+        }
+
+        function delete($file)
+        {
+            if( !$file ){
+                return false;
+            }
+
+            $path = $this->dir.$file;
+
+            return $this->sftp->delete($path,true);
+        }
+
+        function parse_raw_list($subdir)
+        {
+            $path=$this->dir.$subdir;
+
+            $items = array();
+            $files = $this->sftp->rawlist($path);
+
+            // List all the files
+            $i=0;
+            foreach ($files as $file=>$stat) {
+                if( $file!= '.' and $file!= '..' ){
+                    $items[$i]['name']=$file;
+                    $items[$i]['permsn']=$stat['permissions'];
+
+                    if( $stat['type']==1 ){
+                        $items[$i]['type']='file';
+                        $items[$i]['size']=$stat['size'];
+                    }elseif( $stat['type']==2 ){
+                        $items[$i]['type']='folder';
+                    }else{
+                        //ignore symlinks
+                        continue;
+                    }
+
+                    $items[$i]['modified']=$stat['mtime'];
+                }
+                $i++;
+            }
+
+            return $items;
+        }
+
+        function search_nodes($s, $path, $file_extensions)
+        {
+            $list = $this->parse_raw_list($path);
+
+            if( !$list ){
+                return array();
+            }
+
+            $items = array();
+
+            foreach( $list as $v ){
+                if( $v['type']!='file' ){
+                    if( $v['name']=='.' or $v['name']=='..' or $v['name']=='.svn' ){
+                        continue;
+                    }
+
+                    $arr = $this->search_nodes($s, $path.$v['name'].'/', $file_extensions);
+
+                    $items=array_merge($items,$arr);
+                }else{
+                    if( strstr($v['name'], $s) and in_array(file_ext($v['name']), $file_extensions) ){
+                        $items[] = $path.$v['name'];
+
+                        $this->send_msg($this->startedAt , $path.$v['name']);
+                    }
+                }
+            }
+
+            return $items;
+        }
+
+        function search($s, $path, $file_extensions)
+        {
+            return $this->search_nodes($s, $path, $file_extensions);
+        }
+
+        function close()
+        {
+            if( $this->sftp ){
+                $this->sftp->__destruct();
+            }
+        }
+    }
+}else{
+    class sftp extends server{
+    	function connect($host, $user, $pass, $port=22, $dir, $options)
+    	{
+    	    if (!extension_loaded('ssh2')) {
+    			$this->ftp_log[]='PHP SSH2 module not loaded';
+    	        return false;
+    	    }
+
+    		$logon_type = $options['logon_type'];
+
+    		if( !$options['timeout'] ){
+    			$options['timeout'] = 10;
+    		}
+
+    		if( !$host ){
+    			$this->ftp_log[]='No domain';
+    			return false;
+    		}
+
+    		if( !$options['timeout'] ){
+    			$options['timeout'] = 10;
+    		}
+
+    		$this->conn_id = ssh2_connect($host, $port);
+
+    		if( !$this->conn_id ){
+    			$this->ftp_log[] = 'connection to host failed';
+    			return false;
+    		}
+
+    		$result = ssh2_auth_password($this->conn_id, $user, $pass);
+
+    		if( !$result ){
+    			$this->ftp_log[] = 'login incorrect';
+    			$this->require_password = true;
+    		}
+
+    		$this->sftp = ssh2_sftp($this->conn_id);
+
+    		if($this->sftp === null){
+    			$this->ftp_log[] = 'can not establish sftp';
+    			return false;
+    		}
+
+    		$this->dir = $dir;
+
+    		if( substr($result,0,3)!=='230' and $result!==true ){
+    			return false;
+    		}elseif( $dir and !$this->chdir($dir) ){
+    			$this->ftp_log[] = 'Dir does not exist: '.$dir;
+    			return false;
+    		}else{
+    			return true;
+    		}
+    	}
+
+    	function command($command)
+    	{
+    		$stream = ssh2_exec($this->conn_id, $command);
+
+    		if(!$stream){
+    		    return false;
+    		}
+
+            stream_set_blocking($stream, true);
+    		$result = stream_get_contents($stream);
+
+    		if( substr($command, 0, 5) == 'PASS ' ){
+    			$command='PASS ******';
+    		}
+
+    		$this->ftp_log[] = $command;
+    		$this->ftp_log = array_merge($this->ftp_log, $result);
+
+    		return trim($result);
+    	}
+
+    	function chdir($path){
+    		if( $path === $this->pwd ){
+    			return true;
+    		}else{
+    			$this->ftp_log[] = 'chdir '.$path;
+    			//print $this->command('cd '.$path.'; pwd').'/'."\n";
+    			//print $this->command('cd '.$path.'; pwd').'/'."\n";
+			    if( $this->command('cd '.$path.'; pwd').'/'===$path ){
+    				$this->pwd = $this->command('pwd');
+    				return true;
+    			}else{
+    				return false;
+    			}
+    		}
+    	}
+
+    	function get($remote_file, $mode=FTP_BINARY, $resume_pos=null)
+    	{
+    		$remote_file = $this->dir.$remote_file;
+
+    		//check file size
+    		$stat = ssh2_sftp_stat($this->sftp, $remote_file);
+    		$size = $stat['size'];
+    		if( $size > $this->max_size ){
+    			$this->ftp_log[] = 'File too large: '.file_size($size);
+    			return false;
+    		}
+
+            $handle = fopen("ssh2.sftp://".$this->sftp."/".$remote_file, 'r');
+
+    		if( $handle ){
+    			$data = stream_get_contents($handle, $this->max_size);
+    			fclose($handle);
+    			unlink($tmpfname);
+
+    			return $data;
+    		}else{
+    			fclose($handle);
+    			unlink($tmpfname);
+
+    			return false;
+    		}
+    	}
+
+    	function put($file, $content, $resume_pos=0)
+    	{
+    		$remote_file = $this->dir.$file;
+            $handle = fopen("ssh2.sftp://".$this->sftp."/".$remote_file, 'w');
+    		return fwrite($handle , $content);
+    	}
+
+    	function last_modified($file){
+    		$remote_file = $this->dir.$file;
+    		$stat = ssh2_sftp_stat($this->sftp, $remote_file);
+    		return $stat['mtime'];
+    	}
+
+    	function size($file){
+    		$remote_file = $this->dir.$file;
+    		$stat = ssh2_sftp_stat($this->sftp, $remote_file);
+    		return $stat['size'];
+    	}
+
+    	function is_dir($dir)
+    	{
+    		$dir = $this->dir.$dir;
+
+    		// Get the current working directory
+    		$origin = $this->command('pwd');
+
+    		// Attempt to change directory, suppress errors
+    		if (@$this->chdir($dir))
+    		{
+    			// If the directory exists, set back to origin
+    			$this->chdir($origin);
+    			return true;
+    		}
+
+    		// Directory does not exist
+    		return false;
+    	}
+
+    	function file_exists($file)
+    	{
+    		$file = $this->dir.$file;
+    		$stat = ssh2_sftp_stat($this->sftp, $file);
+
+    		if($stat['size'] == '-1'){
+    			//folder?
+    			if($this->chdir($file)){
+    				return true;
+    			}
+    			return false;
+    		}else{
+    			return true;
+    		}
+    	}
+
+    	function chmod($mode,$file)
+    	{
+    		$file = $this->dir.$file;
+
+    		return ssh2_sftp_chmod($this->sftp, $file, $mode);
+    	}
+
+    	function rename($old_name, $new_name)
+    	{
+    		$old_name = $this->dir.$old_name;
+    		$new_name = $this->dir.$new_name;
+
+    		return ssh2_sftp_rename($this->sftp, $old_name, $new_name);
+    	}
+
+    	function mkdir($dir)
+    	{
+    		$dir = $this->dir.$dir;
+    		return ssh2_sftp_mkdir($this->sftp, $dir) !== false ? true : false;
+    	}
+
+    	function delete($file)
+    	{
+    		if( !$file ){
+    			$this->ftp_log[]='no file';
+    			return false;
+    		}
+
+    		$path = $this->dir.$file;
+
+    		if( $this->is_dir($file) ){
+    			$list = $this->parse_raw_list($file);
+    			foreach ($list as $item){
+    				if( $item['name'] != '..' && $item['name'] != '.' ){
+    					$this->delete($file.'/'.$item['name']);
+    				}
+    			}
+
+    			if( !$this->chdir(dirname($path)) ){
+    				return false;
+    			}
+
+    			$this->log('rmdir '.$path);
+    			if( !ssh2_sftp_rmdir($this->sftp, basename($path)) ){
+    				return false;
+    			}else{
+    				return true;
+    			}
+    		}else{
+    			if( $this->file_exists($file) ){
+    				$this->log('delete '.$path);
+    				return ssh2_sftp_unlink($this->sftp, $path);
+    			}
+    		}
+    	}
+
+    	function chmod_num($permissions)
+    	{
+    		$mode = 0;
+
+    		if ($permissions[1] == 'r') $mode += 0400;
+    		if ($permissions[2] == 'w') $mode += 0200;
+    		if ($permissions[3] == 'x') $mode += 0100;
+    		else if ($permissions[3] == 's') $mode += 04100;
+    		else if ($permissions[3] == 'S') $mode += 04000;
+
+    		if ($permissions[4] == 'r') $mode += 040;
+    		if ($permissions[5] == 'w') $mode += 020;
+    		if ($permissions[6] == 'x') $mode += 010;
+    		else if ($permissions[6] == 's') $mode += 02010;
+    		else if ($permissions[6] == 'S') $mode += 02000;
+
+    		if ($permissions[7] == 'r') $mode += 04;
+    		if ($permissions[8] == 'w') $mode += 02;
+    		if ($permissions[9] == 'x') $mode += 01;
+    		else if ($permissions[9] == 't') $mode += 01001;
+    		else if ($permissions[9] == 'T') $mode += 01000;
+
+    		return sprintf('%o', $mode);
+    	}
+
+    	function parse_raw_list( $path )
+    	{
+    		$path = $this->dir.$subdir;
+
+    		$items = array();
+    		$list = $this->command('cd '.$path.'; ls -al');
+
+            while (false != ($entry = readdir($handle))){
+                echo "$entry\n";
+            }
+
+    		$files = explode("\n", $list);
+
+    		// List all the files
+    		$i=0;
+    		foreach ($files as $folder) {
+                $struc = array();
+
+                $current = preg_split("/[\s]+/",$folder,9);
+
+                $i = 0;
+
+                $struc['perms'] = $current[0];
+                $struc['permsn'] = $this->chmod_num($struc['perms']);
+                $struc['number'] = $current[1];
+                $struc['owner'] = $current[2];
+
+                $struc['group'] = $current[4];
+
+                $struc['size'] = $current[(count($current)-5)];
+                $struc['month'] = $current[(count($current)-4)];
+                $struc['day'] = $current[(count($current)-3)];
+                $date = $current[(count($current)-2)];
+                $struc['name'] = str_replace('//', '', end($current));
+
+                if( strlen($date)==4 ){
+                    $struc['year'] = $date;
+                    $struc['time'] = '00:00';
+                }else{
+                    $struc['year'] = date('Y');
+
+                    if( strtotime($struc['month'].' '.$struc['day'])>time() ){
+                        $struc['year']--;
+                    }
+
+                    $struc['time'] = $date;
+                }
+
+                $struc['modified'] = strtotime($struc['month'].' '.$struc['day'].' '.$struc['year'].' '.$struc['time']);
+
+                $struc['raw'] = $folder;
+
+                if( substr($folder, 0, 1) == "d" ){
+                    $struc['type'] = 'folder';
+                }elseif (substr($folder, 0, 1) == "l"){
+                    $struc['type'] = 'link';
+                    continue;
+                }else{
+                    $struc['type'] = 'file';
+                }
+
+                if( $struc['name'] ){
+                    $items[] = $struc;
+                }
+
+    			$i++;
+    		}
+
+    		return $items;
+    	}
+
+    	function search_nodes($s, $path)
+    	{
+    		$list = $this->parse_raw_list($path);
+
+    		if( !$list ){
+    			return array();
+    		}
+
+    		$items = array();
+
+    		foreach( $list as $v ){
+    			if( $v['type']!='file' ){
+    				if( $v['name']=='.' or $v['name']=='..' or $v['name']=='.svn' ){
+    					continue;
+    				}
+
+    				$arr = $this->search_nodes($s, $path.$v['name'].'/', $file_extensions);
+
+    				$items = array_merge($items,$arr);
+    			}else{
+    				if( strstr($v['name'], $s) ){
+    					$items[] = $path.$v['name'];
+
+    					$this->send_msg($this->startedAt , $path.$v['name']);
+    				}
+    			}
+    		}
+
+    		return $items;
+    	}
+
+    	function search($s, $path)
+    	{
+    		$this->startedAt = time();
+    		return $this->search_nodes($s, $path);
+    	}
+
+    	function close()
+    	{
+    		ftp_close($this->conn_id);
+    	}
     }
 }
 
@@ -1037,21 +1422,27 @@ function get_nodes($path, $paths)
 
     $i=0;
     foreach( $list as $v ){
+		$name = basename_safe(htmlentities($v['name']));
+
         if( $v['type'] != 'file' ){
             if( $v['name']=='.' or $v['name']=='..' or $v['name']=='.svn' or $v['name']=='' ){
                 continue;
             }
 
-            $files[$i] = array(
-                'text' => basename_safe($v['name']),
-                'iconCls' => 'folder',
-                'disabled' => false,
-                'leaf' => false,
-                'perms' => $v['permsn'],
-                'modified' =>  $v['modified'],
-                'size' => '',
-                'id' => $path.$v['name']
-            );
+			$files[$i] = array(
+				'id' => $path.$name,
+				'text' => $name,
+				//'iconCls' => 'folder',
+				//'disabled' => false,
+				//'icon' => 'folder',
+				'type' => 'folder',
+				'children' => true,
+				'data' => array(
+    				'perms' => $v['permsn'],
+    				'modified' =>  $v['modified'],
+    				'size' => ''
+				)
+			);
 
             // which paths to preload
             $subdir = $path.$v['name'].'/';
@@ -1065,26 +1456,30 @@ function get_nodes($path, $paths)
                 }
             }
 
-            if( $expand    ){
+            if($expand) {
                 $files[$i]['expanded']=true;
             }
         }else{
             $ext = file_ext(basename_safe($v['name']));
 
-            if( $ext == 'lck' ){
+            if($ext == 'lck') {
                 continue;
             }
 
-            $files[$i] = array(
-                'text' => basename_safe($v['name']),
-                'iconCls' => 'file-'.$ext,
-                'disabled' => false,
-                'leaf' => true,
-                'perms' => $v['permsn'],
-                'modified' =>  $v['modified'],
-                'size' => $v['size'],
-                'id' => $path.$v['name']
-            );
+			$files[$i] = array(
+				'id' => $path.$name,
+				'text' => $name,
+				//'iconCls' => 'file-'.$ext,
+				//'disabled' => false,
+				'icon' => 'file file-'.$ext,
+				'type' => 'file',
+				'children' => false,
+				'data' => array(
+    				'perms' => $v['permsn'],
+    				'modified' =>  $v['modified'],
+    				'size' => $v['size']
+				)
+			);
         }
 
         $i++;
@@ -1213,7 +1608,8 @@ switch($server_type){
         $server = new ftp();
         $result = $server->connect($host, $username, $password, $port, $dir, array('pasv'=>$pasv));
         if($result===false){
-            print_r($server->ftp_log);
+            $response['error'] = end($server->ftp_log);
+            echo json_encode($response);
             exit;
         }
     break;
@@ -1221,7 +1617,8 @@ switch($server_type){
         $server = new sftp();
         $result = $server->connect($host, $username, $password, $port, $dir);
         if($result===false){
-            print_r($server->ftp_log);
+            $response['error'] = end($server->ftp_log);
+            echo json_encode($response);
             exit;
         }
     break;
@@ -1234,25 +1631,22 @@ if( $_GET['cmd'] ){
     $_POST['cmd'] = $_GET['cmd'];
 }
 
+$response = array();
 switch( $_POST['cmd'] ){
     case 'test':
         $files = $server->parse_raw_list('/');
-        $response['success'] = $files!==false;
-        if(!$response['success']){
+        if($files===false){
             $response['error'] = 'Dir listing failed';
         }
-        echo json_encode($response);
     break;
 
     case 'save':
         if( $server->put($_POST['file'], $_POST['content']) ){
-            $response['success'] = true;
             $response['last_modified'] = $server->last_modified($_POST['file']);
         }else{
-            $response['success'] = false;
             $response['error'] = 'Failed saving '.$_POST['file'];
         }
-        
+
 		if( file_ext($_POST['file'])=='less' and file_exists('shiftedit-lessc.inc.php') ){
 			require_once('shiftedit-lessc.inc.php');
 
@@ -1263,7 +1657,6 @@ switch( $_POST['cmd'] ){
 				$file = substr($_POST['file'], 0, -5).'.css';
 				$server->put($file, $_POST['content'], $_POST['compileId'], $_POST['parent']);
 			} catch (exception $e) {
-				$response['success'] = false;
 				$response['error'] = 'Error compiling '.$e->getMessage();
 			}
 		}elseif( file_ext($_POST['file'])=='scss' and file_exists('shiftedit-scss.inc.php') ){
@@ -1277,18 +1670,13 @@ switch( $_POST['cmd'] ){
 				$file = substr($_POST['file'], 0, -5).'.css';
 				$server->put($file, $_POST['content'], $_POST['compileId'], $_POST['parent']);
 			} catch (exception $e) {
-				$response['success'] = false;
 				$response['error'] = 'Error compiling '.$e->getMessage();
 			}
 		}
-
-        echo json_encode($response);
     break;
 
     case 'open':
         $response['content'] = $server->get($_POST['file']);
-        $response['success'] = true;
-        echo json_encode($response);
     break;
 
     case 'get':
@@ -1296,18 +1684,19 @@ switch( $_POST['cmd'] ){
             $_POST['path'].='/';
         }
 
-        $files=array();
+        $response['files'] = array();
 
         if( $_POST['path'] == '/' ){
             $_POST['path'] = '';
         }
 
         if( $_POST['path']=='' and $_GET['path'] ){ //used by save as
-            $files = get_nodes($_POST['path'], array(dirname($_GET['path']).'/'));
+            $response['files'] = get_nodes($_POST['path'], array(dirname($_GET['path']).'/'));
         }else{ //preload paths
-            $files = get_nodes($_POST['path'], $_SESSION['paths']);
+            $response['files'] = get_nodes($_POST['path'], $_SESSION['paths']);
         }
 
+		/*
         //include root
         if( $_POST['path'] == '' and $_GET['root']==='false' ){
             $root[0] = array(
@@ -1318,13 +1707,11 @@ switch( $_POST['cmd'] ){
                 'modified' => '',
                 'size' => '',
                 'expanded' => true,
-                'children'=>$files
+                'children' => $response['files']
             );
 
-            $files = $root;
-        }
-
-        echo json_encode($files);
+            $response['files'] = $root;
+        }*/
     break;
 
     case 'list':
@@ -1334,68 +1721,59 @@ switch( $_POST['cmd'] ){
 
         $server_src = $server;
 
-        $response = array();
-        $response['success'] = true;
         $response['files'] = list_nodes($_POST['path']);
+    break;
 
-        echo json_encode($response);
+    case 'file_exists':
+        $response['file_exists'] = $server->file_exists($_GET['file']);
     break;
 
     case 'rename':
         $old_name = $_POST['oldname'];
         $new_name = $_POST['newname'];
 
-        if( $server->rename($old_name, $new_name) ){
-            echo '{"success":true}';
-        }else{
-            echo '{"success":false,"error":"Cannot rename file"}';
+        if( !$server->rename($old_name, $new_name) ){
+   			$response['error'] = 'Cannot rename file';
         }
     break;
 
     case 'newdir':
-        $dir=$_POST['dir'];
+        $dir = $_POST['dir'];
 
-        if( $server->mkdir($dir) ){
-            echo '{"success":true}';
-        }else{
-            echo '{"success":false,"error":"Cannot create directory"}';
+        if( !$server->mkdir($dir) ){
+   			$response['error'] = 'Cannot create dir';
         }
     break;
 
     case 'newfile':
         $content='';
 
-        if( $server->put($_POST['file'], $content) ){
-            echo '{"success":true}';
-        }else{
-            echo '{"success":false,"error":"Cannot create file"}';
+        if( !$server->put($_POST['file'], $content) ){
+   			$response['error'] = 'Cannot create file';
         }
     break;
 
     case 'duplicate':
     case 'paste':
         if( !$_POST['dest'] or !$_POST['path'] ){
-            echo '{"success":false,"error":"Cannot create file"}';
+   			$response['error'] = 'Cannot create file';
         }else{
             $server_src = $server;
 
             if( $_POST['isDir']=="true" ){
                 if( $_POST['dest'] and $server->file_exists($_POST['dest']) ){
-                    echo '{"success":true}';
                 }elseif( $_POST['dest'] and $server->mkdir($_POST['dest']) ){
-                    echo '{"success":true}';
                 }else{
-                    echo '{"success":false,"error":"Cannot create folder: '.$_POST['dest'].'"}';
+        			$response['error'] = 'Cannot create folder: '.$_POST['dest'];
                 }
             }else{
                 $content = $server_src->get($_POST['path']);
 
                 if( $content === false ){
-                    echo '{"success":false,"error":"Cannot read file: '.$_POST['path'].'"}';
+        			$response['error'] = 'Cannot read file: '.$_POST['path'];
                 }elseif(  $_POST['dest'] and $server->put($_POST['dest'], $content) ){
-                    echo '{"success":true}';
                 }else{
-                    echo '{"success":false,"error":"Cannot create file: '.$_POST['dest'].'"}';
+        			$response['error'] = 'Cannot create file: '.$_POST['dest'];
                 }
             }
 
@@ -1406,19 +1784,21 @@ switch( $_POST['cmd'] ){
     break;
 
     case 'delete':
-        $file = $_POST['file'];
+        header('Content-Type: text/event-stream');
+        header('Cache-Control: no-cache');
+        $server->startedAt = time();
 
-        if( !$server->is_dir($file) ){
-            if( $server->delete($file) ){
-                echo '{"success":true}';
-            }else{
-                echo '{"success":false,"error":"Cannot delete file: '.end($server->log).'"}';
+        $file = $_GET['file'];
+
+        if(!$file) {
+		    $response['error'] = 'No file to delete';
+		}else if( !$server->is_dir($file) ){
+            if( !$server->delete($file) ){
+        		$response['error'] = 'Cannot delete file: '.end($server->log);
             }
         }else{
-            if( $server->delete($file) ){
-                echo '{"success":true}';
-            }else{
-                echo '{"success":false,"error":"Cannot delete directory: '.end($server->log).'"}';
+            if( !$server->delete($file) ){
+        		$response['error'] = 'Cannot delete directory: '.end($server->log);
             }
         }
     break;
@@ -1426,17 +1806,12 @@ switch( $_POST['cmd'] ){
     case 'upload':
         $response = array();
 
-        $response['success']=true;
-
         if( $_POST['chunked'] ){
             $path = $_POST['path'].'/'.$_POST['resumableFilename'];
             $content = file_get_contents($_FILES['file']['tmp_name']);
-
             $resume_pos = ($_POST['resumableChunkNumber']-1) * $_POST['resumableChunkSize'];
 
-            if( $server->put($path, $content, $resume_pos) ){
-                //success
-            }else{
+            if( !$server->put($path, $content, $resume_pos) ){
                 header('HTTP/1.0 500 Internal Server Error');
             }
         }elseif( isset($_POST['file']) and isset($_POST['content']) ){
@@ -1451,19 +1826,11 @@ switch( $_POST['cmd'] ){
             }
 
             if( strstr($_POST['file'],'.') ){
-                if( $server->put($_POST['file'], $content) ){
-                    //success
-                }else{
-                    $response['success']=false;
-
+                if( !$server->put($_POST['file'], $content) ){
                     $response['error'] = 'Can\'t create file '.$file['name'];
                 }
             }else{
-                if( $server->mkdir($_POST['file']) ){
-                    //success
-                }else{
-                    $response['success']=false;
-
+                if( !$server->mkdir($_POST['file']) ){
                     $response['error'] = 'Can\'t create folder '.$file['name'];
                 }
             }
@@ -1472,21 +1839,14 @@ switch( $_POST['cmd'] ){
                 if( $file['error'] == UPLOAD_ERR_OK ){
                     $content = file_get_contents($file['tmp_name']);
 
-                    if( $server->put($_POST['path'].'/'.$file['name'], $content) ){
-                        //success
-                    }else{
-                        $response['success']=false;
-
-                        $response['error']='Can\'t create file '.$file['name'];
+                    if( !$server->put($_POST['path'].'/'.$file['name'], $content) ){
+                        $response['error'] = 'Can\'t create file '.$file['name'];
                     }
                 }else{
-                    $response['success']=false;
                     $response['error'] = $error.' '.$file['name'];
                 }
             }
         }
-
-        echo json_encode($response);
     break;
 
     case 'download':
@@ -1503,68 +1863,59 @@ switch( $_POST['cmd'] ){
     case 'chmod':
         $file = $_POST['file'];
 
-        if( $server->chmod($file, intval($_POST['mode'], 8)) ){
-            echo '{"success":true}';
-        }else{
-            echo '{"success":false,"error":"Cannot chmod file"}';
+        if( !$server->chmod($file, intval($_POST['mode'], 8)) ){
+        	$response['error'] = 'Cannot chmod file';
         }
     break;
 
     case 'uploadByURL':
         if( substr($_POST['url'],0,7)!='http://' && substr($_POST['url'],0,8)!='https://' ){
-            $response['success']=false;
-            $response['error']='Invalid URL';
+            $response['error'] = 'Invalid URL';
         }else{
             $content = file_get_contents($_POST['url']);
 
             $file = basename_safe($_POST['url']);
 
             if( !$file ){
-                $response['success']=false;
 
-                $response['error']='Missing file name';
+                $response['error'] = 'Missing file name';
             }else{
-                if( $server->put($_POST['path'].'/'.$file, $content) ){
-                    //success
-                    $response['success']=true;
-                }else{
-                    $response['success']=false;
-                    $response['error']='Can\'t save file';
+                if( !$server->put($_POST['path'].'/'.$file, $content) ){
+                    $response['error'] = 'Can\'t save file';
                 }
             }
         }
-
-        echo json_encode($response);
     break;
 
     case 'saveByURL':
         if( substr($_POST['url'],0,7)!='http://' && substr($_POST['url'],0,8)!='https://' ){
-            $response['success']=false;
-
-            $response['error']='Invalid URL';
+            $response['error'] = 'Invalid URL';
         }else{
             $content=file_get_contents($_POST['url']);
 
             if( $server->put($_POST['path'], $content) ){
                 //success
-                $response['success']=true;
             }else{
-                $response['success']=false;
-                $response['error']='Can\'t save file';
+                $response['error'] = 'Can\'t save file';
             }
         }
-
-        echo json_encode($response);
     break;
 
     case 'extract':
         header('Content-Type: text/event-stream');
         header('Cache-Control: no-cache');
 
-        ignore_user_abort();
-
         $startedAt = time();
         $file = $server->get($_GET['file'], true);
+
+		$pos = strpos($_GET['file'], '.');
+		$file_ext = substr($_GET['file'], $pos);
+		$tmpfname = tmpfile();
+
+		$handle = fopen($tmpfname, "w");
+		fwrite($handle, $data);
+		fclose($handle);
+
         $za = new ZipArchive();
         $za->open($file);
         $server->send_msg($startedAt, $za->numFiles);
@@ -1583,6 +1934,8 @@ switch( $_POST['cmd'] ){
 
             $complete++;
         }
+
+		unlink($tmpfname);
     break;
 
     case 'compress':
@@ -1659,7 +2012,6 @@ switch( $_POST['cmd'] ){
     break;
 
     case 'definitions':
-        $response['success'] = true;
         $json = file_get_contents($definitions);
         $response['definitions'] = json_decode($json);
     break;
@@ -1678,9 +2030,12 @@ switch( $_POST['cmd'] ){
     break;
 
     default:
-        echo '{"success":false,"error":"No command"}';
+        $response['error'] = 'No command';
     break;
 }
+
+$response['success'] = ($response['error']) ? false : true;
+print json_encode($response);
 
 $server->close();
 ?>
