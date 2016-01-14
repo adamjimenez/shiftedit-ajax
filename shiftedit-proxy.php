@@ -133,7 +133,7 @@ abstract class server
         $this->ftp_log[] = $msg;
 
         if($this->startedAt) {
-        	send_msg($this->startedAt, $msg);
+        	$this->send_msg($this->startedAt, $msg);
         }
     }
 
