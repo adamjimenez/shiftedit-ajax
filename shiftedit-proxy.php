@@ -1267,7 +1267,7 @@ if ( $phpseclib_path) {
     		return sprintf('%o', $mode);
     	}
 
-    	function parse_raw_list( $path )
+    	function parse_raw_list($subdir)
     	{
     		$path = $this->dir.$subdir;
 
