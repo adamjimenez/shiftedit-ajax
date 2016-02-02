@@ -12,10 +12,10 @@ $host = 'localhost';
 $username = '{$username}'; //username or ftp username
 $password = '{$password}'; //password or ftp password
 $dir = '{$dir}'; //path to files e.g. dirname(__FILE__).'/';
-$server_type = 'ftp'; //local, ftp or sftp. local requires webserver to have write permissions to files.
-$pasv = true; //pasv mode for ftp
-$port = 21; //usually 21 for ftp and 22 for sftp
-$definitions = ''; //autocomplete definitions e.g. http://example.org/defs.json
+$server_type = '{$server_type}'; //local, ftp or sftp. local requires webserver to have write permissions to files.
+$pasv = '{$pasv}'; //pasv mode for ftp
+$port = '{$port}'; //usually 21 for ftp and 22 for sftp
+$definitions = '{$definitions}'; //autocomplete definitions e.g. http://example.org/defs.json
 $phpseclib_path = ''; //path to phpseclib for sftp, get from: https://github.com/phpseclib/phpseclib
 
 //restrict access by ip
@@ -25,10 +25,10 @@ $ip_restrictions = false;
 $ips = array('');
 
 //api version
-$version = '1.06';
+$version = '1.1';
 
 //cors origin
-$origin = 'https://shiftedit.net';
+$origin = '{$origin}';
 
 //set error level
 error_reporting(E_ALL ^ E_NOTICE);
@@ -238,7 +238,7 @@ class local extends server{
 
             chdir('../');
 
-            $this->log('rmdir '.$this->pwd);
+            $this->log('rmdir '.$file);
             if( !rmdir($path) ){
                 return false;
             }else{
@@ -246,13 +246,13 @@ class local extends server{
             }
         }else{
             if( $this->file_exists($file) ){
-                $this->log('delete '.$path);
+                $this->log('delete '.$file);
                 return unlink($path);
             }
         }
     }
 
-    function parse_raw_list( $path )
+    function parse_raw_list($path)
     {
         $path = $this->dir.$path;
 
@@ -580,7 +580,7 @@ class ftp extends server{
                 return false;
             }
 
-            $this->log('rmdir '.$path);
+            $this->log('rmdir '.$file);
             if( !ftp_rmdir($this->conn_id, basename($path)) ){
                 return false;
             }else{
@@ -588,7 +588,7 @@ class ftp extends server{
             }
         }else{
             if( $this->file_exists($file) ){
-                $this->log('delete '.$path);
+                $this->log('delete '.$file);
                 return ftp_delete($this->conn_id, $path);
             }
         }
@@ -937,7 +937,7 @@ if ( $phpseclib_path) {
 
         function parse_raw_list($subdir)
         {
-            $path=$this->dir.$subdir;
+            $path = $this->dir.$subdir;
 
             $items = array();
             $files = $this->sftp->rawlist($path);
@@ -946,20 +946,20 @@ if ( $phpseclib_path) {
             $i=0;
             foreach ($files as $file=>$stat) {
                 if( $file!= '.' and $file!= '..' ){
-                    $items[$i]['name']=$file;
-                    $items[$i]['permsn']=$stat['permissions'];
+                    $items[$i]['name'] = $file;
+                    $items[$i]['permsn'] = $stat['permissions'];
 
                     if( $stat['type']==1 ){
-                        $items[$i]['type']='file';
-                        $items[$i]['size']=$stat['size'];
+                        $items[$i]['type'] = 'file';
+                        $items[$i]['size'] = $stat['size'];
                     }elseif( $stat['type']==2 ){
-                        $items[$i]['type']='folder';
+                        $items[$i]['type'] = 'folder';
                     }else{
                         //ignore symlinks
                         continue;
                     }
 
-                    $items[$i]['modified']=$stat['mtime'];
+                    $items[$i]['modified'] = $stat['mtime'];
                 }
                 $i++;
             }
@@ -1014,7 +1014,7 @@ if ( $phpseclib_path) {
     class sftp extends server{
     	function connect($host, $user, $pass, $port=22, $dir, $options)
     	{
-    	    if (!extension_loaded('ssh2')) {
+    	    if (!function_exists('ssh2_connect')) {
     			$this->ftp_log[]='PHP SSH2 module not loaded';
     	        return false;
     	    }
@@ -1228,7 +1228,7 @@ if ( $phpseclib_path) {
     				return false;
     			}
 
-    			$this->log('rmdir '.$path);
+    			$this->log('rmdir '.$file);
     			if( !ssh2_sftp_rmdir($this->sftp, basename($path)) ){
     				return false;
     			}else{
@@ -1236,7 +1236,7 @@ if ( $phpseclib_path) {
     			}
     		}else{
     			if( $this->file_exists($file) ){
-    				$this->log('delete '.$path);
+    				$this->log('delete '.$file);
     				return ssh2_sftp_unlink($this->sftp, $path);
     			}
     		}
@@ -1456,9 +1456,10 @@ function get_nodes($path, $paths)
                 }
             }
 
-            if($expand) {
-                $files[$i]['expanded']=true;
-            }
+			if ($expand) {
+				$files[$i]['state']['opened'] = true;
+				$files[$i]['children'] = get_nodes($path.$v['name'].'/', $paths);
+			}
         }else{
             $ext = file_ext(basename_safe($v['name']));
 
@@ -1493,8 +1494,8 @@ function get_paths($path){
     global $server, $size, $max_size;
     $list = $server->parse_raw_list($path);
 
-    if( !$list ){
-        return array();
+    if( $list===false ){
+        return false;
     }
 
     $items = array();
@@ -1548,9 +1549,9 @@ function list_nodes($path)
                 'isDir'=>true
             );
 
-            $arr=list_nodes($path.$v['name'].'/',$dest.'/'.$v['name']);
+            $arr = list_nodes($path.$v['name'].'/',$dest.'/'.$v['name']);
 
-            $items=array_merge($items,$arr);
+            $items = array_merge($items,$arr);
         }else{
             $items[]=array(
                 'path'=>$path.$v['name'],
@@ -1680,6 +1681,7 @@ switch( $_POST['cmd'] ){
     break;
 
     case 'get':
+    case 'list':
         if( $_POST['path'] and substr($_POST['path'],-1)!=='/' ){
             $_POST['path'].='/';
         }
@@ -1714,7 +1716,7 @@ switch( $_POST['cmd'] ){
         }*/
     break;
 
-    case 'list':
+	case 'list_all':
         if( $_POST['path'] and substr($_POST['path'],-1)!=='/' ){
             $_POST['path'].='/';
         }
@@ -1771,7 +1773,7 @@ switch( $_POST['cmd'] ){
 
                 if( $content === false ){
         			$response['error'] = 'Cannot read file: '.$_POST['path'];
-                }elseif(  $_POST['dest'] and $server->put($_POST['dest'], $content) ){
+                }elseif( $_POST['dest'] and $server->put($_POST['dest'], $content) ){
                 }else{
         			$response['error'] = 'Cannot create file: '.$_POST['dest'];
                 }
@@ -1939,76 +1941,84 @@ switch( $_POST['cmd'] ){
     break;
 
     case 'compress':
-        if( $_GET['d'] ){
-            if( $_SESSION['download']['name'] ){
-                header("Content-Disposition: attachment; filename=" . urlencode($_SESSION['download']['name']));
-                header("Content-Type: application/octet-stream");
-                print file_get_contents($_SESSION['download']['file']);
-                unlink($_SESSION['download']['file']);
-                unset($_SESSION['download']);
-                exit;
-            }else{
-                die('no zip file');
-            }
-        }
-
-        header('Content-Type: text/event-stream');
-
-        $size = 0;
-        $max_size = 10000000;
-
-        $id = time();
-
-        $site = $_GET['site'];
-        $file = $_GET['file'];
-
-        $server->send_msg($id, 'Initializing');
-
-        $is_dir = $server->is_dir($file);
-
-        if( !$is_dir ){
-            $files = array($file);
-
-            if( $server->size($file) > $max_size ){
-                $server->send_msg($id, 'File size limit exceeded '.$file);
-            }
-
-        }else{
-            $files = get_paths($file.'/');
-
-            if( !$files ){
-                $server->send_msg($id, 'File size limit exceeded');
-                exit;
-            }
-        }
-
-        $zip_file = tempnam("/tmp", "shiftedit_zip_");
-
-        $zip = new ZipArchive();
-        if ($zip->open($zip_file, ZipArchive::CREATE)!==TRUE) {
-            die("cannot open <$zip_file>\n");
-        }
-
-        foreach( $files as $file ){
-            $server->send_msg($id, 'Compressing '.$file);
-
-            $content = $server->get($file);
-
-            if( $content!==false ){
-                $name = (dirname($_GET['file']) !== '.') ? substr($file, strlen(dirname($_GET['file']))+1) : $file;
-                $zip->addFromString($name, $content);
-            }
-        }
-
-        $zip->close();
-        $data = file_get_contents($zip_file);
-
-        $_SESSION['download'] = array(
-            'name' => basename($_GET['file']).'.zip',
-            'file' => $zip_file
-        );
-
-        $server->send_msg($id, 'done');
+		if ($_POST['paths']) {
+			$_SESSION['paths'] = $_POST['paths'];
+		} else {
+	        if( $_GET['d'] ){
+	            if( $_SESSION['download']['name'] ){
+	                header("Content-Disposition: attachment; filename=" . $_SESSION['download']['name']);
+	                header("Content-Type: application/octet-stream");
+	            	print file_get_contents($_SESSION['download']['file']);
+	                unlink($_SESSION['download']['file']);
+	                unset($_SESSION['download']);
+					unset($_SESSION['paths']);
+	                exit;
+	            }else{
+	                die('no zip file');
+	            }
+	        }
+	
+	        header('Content-Type: text/event-stream');
+	
+	        $size = 0;
+	        $max_size = 10000000;
+	
+	        $id = time();
+	
+	        $server->send_msg($id, 'Initializing');
+	
+	        $zip_file = tempnam("/tmp", "shiftedit_zip_");
+	        $zip = new ZipArchive();
+	        if ($zip->open($zip_file, ZipArchive::CREATE)!==TRUE) {
+	            die("cannot open <$zip_file>\n");
+	        }
+	        
+			$paths = $_SESSION['paths'];
+			foreach($paths as $file) {
+		        $is_dir = $server->is_dir($file);
+		
+		        if( !$is_dir ){
+		            $files = array($file);
+		
+		            if( $server->size($file) > $max_size ){
+		                $server->send_msg($id, 'File size limit exceeded '.$file);
+		            }
+		        }else{
+		            $files = get_paths($file.'/');
+		
+		            if( $files===false ){
+		                $server->send_msg($id, 'Error getting files');
+		                exit;
+		            }
+		            
+		            $zip->addEmptyDir($file);
+		        }
+		
+		        foreach( $files as $file ){
+		            $server->send_msg($id, 'Compressing '.$file);
+					
+					$dir = dirname($file);
+	            	$zip->addEmptyDir($dir);
+	            	
+		            $content = $server->get($file);
+		
+		            if( $content!==false ){
+		                $zip->addFromString($file, $content);
+		            }
+		        }
+			}
+	
+	        $zip->close();
+	        
+	        $zip_name = (count($paths)===1) ? basename($paths[0]) : 'files';
+	
+			$_SESSION['download'] = array(
+	            'name' => $zip_name.'.zip',
+				'file' => $zip_file
+			);
+	
+	        $server->send_msg($id, 'done');
+		}
     break;
 
     case 'definitions':
@@ -2017,12 +2027,16 @@ switch( $_POST['cmd'] ){
     break;
 
     case 'save_path':
-        if( $_POST['expand']!='false' ){
-            $_SESSION['paths'][] = $_POST['path'];
+		if( $_GET['path'] and substr($_GET['path'], -1)!=='/' ){
+			$_GET['path'].='/';
+		}
+
+        if($_GET['expand']) {
+            $_SESSION['paths'][] = $_GET['path'];
             $_SESSION['paths'] = array_unique($_SESSION['paths']);
-        }else{
+        } else {
             foreach($_SESSION['paths'] as $k=>$v ){
-                if( substr($v, 0, strlen($_POST['path'])) == $_POST['path'] ){
+                if (substr($v, 0, strlen($_GET['path'])) == $_GET['path']) {
                     unset($_SESSION['paths'][$k]);
                 }
             }
