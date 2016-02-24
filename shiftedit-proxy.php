@@ -397,7 +397,7 @@ class ftp extends server{
 		}else{
 			$this->ftp_log[] = 'chdir '.$path;
 			if( ftp_chdir($this->conn_id, $path) ){
-				$this->pwd = ftp_pwd($this->conn_id);
+				$this->pwd = $path;
 				return true;
 			}else{
 				return false;
@@ -598,19 +598,15 @@ class ftp extends server{
 	{
 		$path = $this->dir.$path;
 
-		if( $path and !$this->chdir($path) ){
-			return false;
-		}
-
-		$array = ftp_rawlist($this->conn_id, '-a');
+		$array = ftp_rawlist($this->conn_id, '-a '.$path);
 
 		if( $array === false ){
 			return false;
 		}
 
-		$items=array();
+		$items = array();
 
-		$systype = ftp_systype($this->conn_id);
+		//$systype = ftp_systype($this->conn_id);
 
 		foreach( $array as $folder ){
 			$struc = array();
@@ -1422,7 +1418,7 @@ function get_nodes($path, $paths)
 
 	$i=0;
 	foreach( $list as $v ){
-		$name = basename_safe(htmlentities($v['name']));
+		$name = basename_safe($v['name']);
 
 		if( $v['type'] != 'file' ){
 			if( $v['name']=='.' or $v['name']=='..' or $v['name']=='.svn' or $v['name']=='' ){
@@ -1814,7 +1810,7 @@ switch( $_POST['cmd'] ){
 			$resume_pos = ($_POST['resumableChunkNumber']-1) * $_POST['resumableChunkSize'];
 
 			if( !$server->put($path, $content, $resume_pos) ){
-				header('HTTP/1.0 500 Internal Server Error');
+				$response['error'] = 'Cannot save file '.$path;
 			}
 		}elseif( isset($_POST['file']) and isset($_POST['content']) ){
 			$content = $_POST['content'];
@@ -1893,7 +1889,7 @@ switch( $_POST['cmd'] ){
 		if( substr($_POST['url'],0,7)!='http://' && substr($_POST['url'],0,8)!='https://' ){
 			$response['error'] = 'Invalid URL';
 		}else{
-			$content=file_get_contents($_POST['url']);
+			$content = file_get_contents($_POST['url']);
 
 			if( $server->put($_POST['path'], $content) ){
 				//success
@@ -1957,66 +1953,66 @@ switch( $_POST['cmd'] ){
 					die('no zip file');
 				}
 			}
-	
+
 			header('Content-Type: text/event-stream');
-	
+
 			$size = 0;
 			$max_size = 10000000;
-	
+
 			$id = time();
-	
+
 			$server->send_msg($id, 'Initializing');
-	
+
 			$zip_file = tempnam("/tmp", "shiftedit_zip_");
 			$zip = new ZipArchive();
 			if ($zip->open($zip_file, ZipArchive::CREATE)!==TRUE) {
 				die("cannot open <$zip_file>\n");
 			}
-			
+
 			$paths = $_SESSION['paths'];
 			foreach($paths as $file) {
 				$is_dir = $server->is_dir($file);
-		
+
 				if( !$is_dir ){
 					$files = array($file);
-		
+
 					if( $server->size($file) > $max_size ){
 						$server->send_msg($id, 'File size limit exceeded '.$file);
 					}
 				}else{
 					$files = get_paths($file.'/');
-		
+
 					if( $files===false ){
 						$server->send_msg($id, 'Error getting files');
 						exit;
 					}
-					
+
 					$zip->addEmptyDir($file);
 				}
-		
+
 				foreach( $files as $file ){
 					$server->send_msg($id, 'Compressing '.$file);
-					
+
 					$dir = dirname($file);
 					$zip->addEmptyDir($dir);
-					
+
 					$content = $server->get($file);
-		
+
 					if( $content!==false ){
 						$zip->addFromString($file, $content);
 					}
 				}
 			}
-	
+
 			$zip->close();
-			
+
 			$zip_name = (count($paths)===1) ? basename($paths[0]) : 'files';
-	
+
 			$_SESSION['download'] = array(
 				'name' => $zip_name.'.zip',
 				'file' => $zip_file
 			);
-	
+
 			$server->send_msg($id, 'done');
 		}
 	break;
