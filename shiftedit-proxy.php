@@ -179,7 +179,7 @@ class local extends server{
 		$result = fwrite($fp, $content);
 		fclose($fp);
 
-		return $result > 0;
+		return $result;
 	}
 
 	function last_modified($file)
@@ -1638,7 +1638,7 @@ switch( $_POST['cmd'] ){
 	break;
 
 	case 'save':
-		if( $server->put($_POST['file'], $_POST['content']) ){
+		if( $server->put($_POST['file'], $_POST['content'])!==false ){
 			$response['last_modified'] = $server->last_modified($_POST['file']);
 		}else{
 			$response['error'] = 'Failed saving '.$_POST['file'];
