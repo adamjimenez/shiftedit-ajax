@@ -1799,6 +1799,7 @@ switch( $_POST['cmd'] ){
 			}
 		} else if ($_GET['queue']) {
 			$files = $_SESSION['del_queue'];
+			unset($_SESSION['del_queue']);
 
 			if(!$files) {
 				$response['error'] = 'No files to delete';
