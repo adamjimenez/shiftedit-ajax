@@ -200,10 +200,10 @@ class local extends server{
 		return file_exists($file);
 	}
 
-	function chmod($file, $mode)
+	function chmod($mode, $file)
 	{
 		$file = $this->dir.$file;
-		return chmod($file, $mode);
+		return chmod($mode, $file);
 	}
 
 	function rename($old_name, $new_name)
@@ -272,7 +272,7 @@ class local extends server{
 			$items[] = array(
 				'name' => $entry,
 				'permsn' => substr(decoct( fileperms($entry) ), 2),
-				'size' => filesize($entry),
+				'size' => (int)filesize($entry),
 				'modified' => filemtime($entry),
 				'type' => is_dir($entry) ? 'folder' : 'file',
 			);
@@ -538,7 +538,7 @@ class ftp extends server{
 		}
 	}
 
-	function chmod($mode,$file)
+	function chmod($mode, $file)
 	{
 		$file=$this->dir.$file;
 
@@ -611,7 +611,7 @@ class ftp extends server{
 		foreach( $array as $folder ){
 			$struc = array();
 
-			if( preg_match("/([0-9]{2})-([0-9]{2})-([0-9]{2}) +([0-9]{2}):([0-9]{2})(AM|PM) +([0-9]+|<DIR>) +(.+)/",$folder,$split) ){
+			if( preg_match("/([0-9]{2})-([0-9]{2})-([0-9]+) +([0-9]{2}):([0-9]{2})(AM|PM) +([0-9]+|<DIR>) +(.+)/", $folder, $split) ){
 				if (is_array($split)) {
 					if ($split[3]<70) { $split[3]+=2000; } else { $split[3]+=1900; } // 4digit year fix
 					$struc['month'] = $split[1];
@@ -947,7 +947,7 @@ if ( $phpseclib_path) {
 
 					if( $stat['type']==1 ){
 						$items[$i]['type'] = 'file';
-						$items[$i]['size'] = $stat['size'];
+						$items[$i]['size'] = (int)$stat['size'];
 					}elseif( $stat['type']==2 ){
 						$items[$i]['type'] = 'folder';
 					}else{
@@ -1182,7 +1182,7 @@ if ( $phpseclib_path) {
 			}
 		}
 
-		function chmod($mode,$file)
+		function chmod($mode, $file)
 		{
 			$file = $this->dir.$file;
 
@@ -1436,7 +1436,7 @@ function get_nodes($path, $paths)
 				'data' => array(
 					'perms' => $v['permsn'],
 					'modified' =>  $v['modified'],
-					'size' => ''
+					'size' => -1
 				)
 			);
 
@@ -1474,7 +1474,7 @@ function get_nodes($path, $paths)
 				'data' => array(
 					'perms' => $v['permsn'],
 					'modified' =>  $v['modified'],
-					'size' => $v['size']
+					'size' => (int)$v['size']
 				)
 			);
 		}
@@ -1703,7 +1703,7 @@ switch( $_POST['cmd'] ){
 				'disabled' => false,
 				'leaf' => false,
 				'modified' => '',
-				'size' => '',
+				'size' => -1
 				'expanded' => true,
 				'children' => $response['files']
 			);
@@ -1758,7 +1758,7 @@ switch( $_POST['cmd'] ){
 		}else{
 			$server_src = $server;
 
-			if( $_POST['isDir']=="true" ){
+			if( $_POST['isDir'] ){
 				if( $_POST['dest'] and $server->file_exists($_POST['dest']) ){
 				}elseif( $_POST['dest'] and $server->mkdir($_POST['dest']) ){
 				}else{
@@ -1859,9 +1859,9 @@ switch( $_POST['cmd'] ){
 	break;
 
 	case 'chmod':
-		$file = $_POST['file'];
+		$file = $_GET['file'];
 
-		if( !$server->chmod($file, intval($_POST['mode'], 8)) ){
+		if( !$server->chmod(intval($_GET['mode'], 8), $file) ){
 			$response['error'] = 'Cannot chmod file';
 		}
 	break;
