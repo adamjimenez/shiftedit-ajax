@@ -1782,21 +1782,43 @@ switch( $_POST['cmd'] ){
 	break;
 
 	case 'delete':
-		header('Content-Type: text/event-stream');
-		header('Cache-Control: no-cache');
-		$server->startedAt = time();
-
-		$file = $_GET['file'];
-
-		if(!$file) {
-			$response['error'] = 'No file to delete';
-		}else if( !$server->is_dir($file) ){
-			if( !$server->delete($file) ){
-				$response['error'] = 'Cannot delete file: '.end($server->log);
+		$files = array();
+		
+		// backcompat
+		if ($_GET['file']) {
+			header('Content-Type: text/event-stream');
+			header('Cache-Control: no-cache');
+			$server->startedAt = time();
+			$files[] = $_GET['file'];
+		}else if ($_POST['files']) {
+			if (count($_POST['files'])===1) {
+				$files = $_POST['files'];
+			} else {
+				$_SESSION['del_queue'] = $_POST['files'];
+				$response['queue'] = 1;
 			}
-		}else{
-			if( !$server->delete($file) ){
-				$response['error'] = 'Cannot delete directory: '.end($server->log);
+		} else if ($_GET['queue']) {
+			$files = $_SESSION['del_queue'];
+
+			if(!$files) {
+				$response['error'] = 'No files to delete';
+			} else {
+				header('Content-Type: text/event-stream');
+				header('Cache-Control: no-cache');
+				$server->startedAt = time();
+			}
+		}
+
+		// delete files
+		foreach($files as $file) {
+			if( !$server->is_dir($file) ){
+				if( !$server->delete($file) ){
+					$response['error'] = 'Cannot delete file: '.end($server->ftp_log);
+				}
+			}else{
+				if( !$server->delete($file) ){
+					$response['error'] = 'Cannot delete directory: '.end($server->ftp_log);
+				}
 			}
 		}
 	break;
