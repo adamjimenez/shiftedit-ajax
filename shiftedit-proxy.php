@@ -396,7 +396,7 @@ class ftp extends server{
 			return true;
 		}else{
 			$this->ftp_log[] = 'chdir '.$path;
-			if( ftp_chdir($this->conn_id, $path) ){
+			if( @ftp_chdir($this->conn_id, $path) ){
 				$this->pwd = $path;
 				return true;
 			}else{
