@@ -1145,13 +1145,9 @@ if($server_type==='local') {
 				if( $handle ){
 					$data = stream_get_contents($handle, $this->max_size);
 					fclose($handle);
-					unlink($tmpfname);
-	
 					return $data;
 				}else{
 					fclose($handle);
-					unlink($tmpfname);
-	
 					return false;
 				}
 			}
@@ -1399,7 +1395,6 @@ if($server_type==='local') {
 	
 			function close()
 			{
-				ftp_close($this->conn_id);
 			}
 		}
 	
