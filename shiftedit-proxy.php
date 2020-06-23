@@ -52,7 +52,7 @@ function error_handler($errno, $errstr, $errfile, $errline, $errcontext="") {
 		case E_COMPILE_ERROR:
 			$response = array();
 			$response['success'] = false;
-			$response['error'] = $errstr;
+			$response['error'] = $errstr.' on line '.$errline;
 			echo json_encode($response);
 			exit;
 		break;
@@ -142,6 +142,7 @@ abstract class server
 	function __construct() {
 		//max upload size
 		$this->max_size = 20000000;
+		$this->ftp_log = array();
 	}
 
 	function send_msg($id , $msg) {
@@ -172,6 +173,12 @@ if($server_type==='local') {
 		function __construct()
 		{
 			global $dir;
+		
+			// prefix dir with slash
+			if(strlen($dir) and substr($dir, 0, 1)!='/') {
+				$dir = '/'.$dir;
+			}
+			
 			$this->dir = $dir;
 		}
 	
@@ -257,6 +264,10 @@ if($server_type==='local') {
 	
 			if( $this->is_dir($file) ){
 				$list = $this->parse_raw_list($file);
+				if (!is_array($list)) {
+					return false;
+				}
+				
 				foreach ($list as $item){
 					if( $item['name'] != '..' && $item['name'] != '.' ){
 						$this->delete($file.'/'.$item['name']);
@@ -309,11 +320,10 @@ if($server_type==='local') {
 			return $items;
 		}
 	
-		function search_nodes($s, $path, $file_extensions)
+		function search_nodes($s, $path)
 		{
 			$list = $this->parse_raw_list($path);
-	
-			if( !$list ){
+			if( !is_array($list) ){
 				return array();
 			}
 	
@@ -325,10 +335,10 @@ if($server_type==='local') {
 						continue;
 					}
 	
-					$arr = $this->search_nodes($s, $path.$v['name'].'/', $file_extensions);
+					$arr = $this->search_nodes($s, $path.$v['name'].'/');
 					$items = array_merge($items, $arr);
 				}else{
-					if( strstr($v['name'], $s) and in_array(file_ext($v['name']), $file_extensions) ){
+					if( strstr($v['name'], $s) ){
 						$items[] = $path.$v['name'];
 						$this->send_msg($this->startedAt , $path.$v['name']);
 					}
@@ -338,10 +348,10 @@ if($server_type==='local') {
 			return $items;
 		}
 	
-		function search($s, $path, $file_extensions)
+		function search($s, $path)
 		{
 			$this->startedAt = time();
-			return $this->search_nodes($s, $path, $file_extensions);
+			return $this->search_nodes($s, $path);
 		}
 	}
 
@@ -368,9 +378,9 @@ if($server_type==='local') {
 				return false;
 			}
 	
-			if( $encryption ){
+			if (function_exists('ftp_ssl_connect')) {
 				$this->conn_id = ftp_ssl_connect($host, $port, $options['timeout']);
-			}else{
+			} else {
 				$this->conn_id = ftp_connect($host, $port, $options['timeout']);
 			}
 	
@@ -392,6 +402,11 @@ if($server_type==='local') {
 	
 			if( $pasv ){
 				ftp_pasv($this->conn_id, true);
+			}
+		
+			// prefix dir with slash
+			if(strlen($dir) and substr($dir, 0, 1)!='/') {
+				$dir = '/'.$dir;
 			}
 	
 			$this->dir = $dir;
@@ -498,6 +513,9 @@ if($server_type==='local') {
 			//try deleting first
 			if( $result === false ){
 				$items = $this->parse_raw_list(dirname($file));
+				if (!is_array($items)) {
+					return false;
+				}
 	
 				$perms=0;
 				foreach( $items as $v ){
@@ -537,21 +555,13 @@ if($server_type==='local') {
 	
 		function is_dir($dir)
 		{
-			$dir=$this->dir.$dir;
+			$dir = $this->dir.$dir;
 	
 			// Get the current working directory
 			$origin = ftp_pwd($this->conn_id);
 	
 			// Attempt to change directory, suppress errors
-			if (@$this->chdir($dir))
-			{
-				// If the directory exists, set back to origin
-				$this->chdir($origin);
-				return true;
-			}
-	
-			// Directory does not exist
-			return false;
+			return ftp_size($this->conn_id, $dir)===-1;
 		}
 	
 		function file_exists($file)
@@ -600,6 +610,10 @@ if($server_type==='local') {
 	
 			if( $this->is_dir($file) ){
 				$list = $this->parse_raw_list($file);
+				if (!is_array($list)) {
+					return false;
+				}
+				
 				foreach ($list as $item){
 					if( $item['name'] != '..' && $item['name'] != '.' ){
 						$this->delete($file.'/'.$item['name']);
@@ -723,11 +737,10 @@ if($server_type==='local') {
 			return $items;
 		}
 	
-		function search_nodes($s, $path, $file_extensions)
+		function search_nodes($s, $path)
 		{
 			$list = $this->parse_raw_list($path);
-	
-			if( !$list ){
+			if( !is_array($list) ){
 				return array();
 			}
 	
@@ -739,10 +752,10 @@ if($server_type==='local') {
 						continue;
 					}
 	
-					$arr = $this->search_nodes($s, $path.$v['name'].'/', $file_extensions);
+					$arr = $this->search_nodes($s, $path.$v['name'].'/');
 					$items = array_merge($items,$arr);
 				}else{
-					if( strstr($v['name'], $s) and in_array(file_ext($v['name']), $file_extensions) ){
+					if( strstr($v['name'], $s) ){
 						$items[] = $path.$v['name'];
 	
 						$this->send_msg($this->startedAt , $path.$v['name']);
@@ -753,10 +766,10 @@ if($server_type==='local') {
 			return $items;
 		}
 	
-		function search($s, $path, $file_extensions)
+		function search($s, $path)
 		{
 			$this->startedAt = time();
-			return $this->search_nodes($s, $path, $file_extensions);
+			return $this->search_nodes($s, $path);
 		}
 	
 		function close()
@@ -991,38 +1004,35 @@ if($server_type==='local') {
 				return $items;
 			}
 	
-			function search_nodes($s, $path, $file_extensions)
+			function search_nodes($s, $path)
 			{
-				$list = $this->parse_raw_list($path);
-	
-				if( !$list ){
-					return array();
-				}
-	
-				$items = array();
-	
-				foreach( $list as $v ){
-					if( $v['type']!='file' ){
-						if( $v['name']=='.' or $v['name']=='..' or $v['name']=='.svn' ){
+				$packet_handler = function($string) {
+					$items = explode("\n", trim($string));
+					$items = array_unique($items);
+					sort($items);
+					
+					foreach($items as $k=>$v) {
+						if (strstr($v, ':')) {
 							continue;
 						}
-	
-						$arr = $this->search_nodes($s, $path.$v['name'].'/', $file_extensions);
-						$items = array_merge($items, $arr);
-					}else{
-						if( strstr($v['name'], $s) and in_array(file_ext($v['name']), $file_extensions) ){
-							$items[] = $path.$v['name'];
-							$this->send_msg($this->startedAt , $path.$v['name']);
-						}
+						
+						$v = substr($v, strlen($dir));
+						$this->send_msg($this->startedAt , $v);
 					}
-				}
-	
-				return $items;
+				};
+				
+				$dir = $this->dir.$path;
+				
+				$this->exec("pkill grep");
+				$this->exec("pkill find");
+				$results = $this->exec('grep -Ilr '.escapeshellarg($s).' '.escapeshellarg($dir), $packet_handler);
+				$results .= $this->exec('find '.escapeshellarg($dir).' -name "'.escapeshellarg($s).'*"', $packet_handler);
 			}
-	
-			function search($s, $path, $file_extensions)
+		
+			function search($s, $path)
 			{
-				return $this->search_nodes($s, $path, $file_extensions);
+				$this->startedAt = time();
+				return $this->search_nodes($s, $path);
 			}
 	
 			function close()
@@ -1040,45 +1050,46 @@ if($server_type==='local') {
 					$this->ftp_log[]='PHP SSH2 module not loaded';
 					return false;
 				}
-	
+					
 				$logon_type = $options['logon_type'];
-	
+		
 				if( !$options['timeout'] ){
 					$options['timeout'] = 10;
 				}
-	
+		
 				if( !$host ){
 					$this->ftp_log[]='No domain';
 					return false;
 				}
-	
+		
 				if( !$options['timeout'] ){
 					$options['timeout'] = 10;
 				}
-	
+		
 				$this->conn_id = ssh2_connect($host, $port);
-	
+		
 				if( !$this->conn_id ){
 					$this->ftp_log[] = 'connection to host failed';
 					return false;
 				}
-	
+		
 				$result = ssh2_auth_password($this->conn_id, $user, $pass);
-	
+		
 				if( !$result ){
 					$this->ftp_log[] = 'login incorrect';
 					$this->require_password = true;
 				}
-	
+		
+				//print var_dump((stream_get_contents(ssh2_exec($this->conn_id, 'pwd')))); exit;
+		
 				$this->sftp = ssh2_sftp($this->conn_id);
-	
+		
 				if($this->sftp === null){
-					$this->ftp_log[] = 'can not establish sftp';
-					return false;
+					die('can\'t establish sftp');
 				}
-	
+		
 				$this->dir = $dir;
-	
+		
 				if( substr($result,0,3)!=='230' and $result!==true ){
 					return false;
 				}elseif( $dir and !$this->chdir($dir) ){
@@ -1088,50 +1099,25 @@ if($server_type==='local') {
 					return true;
 				}
 			}
-	
-			function command($command)
-			{
-				$stream = ssh2_exec($this->conn_id, $command);
-	
-				if(!$stream){
-					return false;
-				}
-	
-				stream_set_blocking($stream, true);
-				$result = stream_get_contents($stream);
-	
-				if( substr($command, 0, 5) == 'PASS ' ){
-					$command='PASS ******';
-				}
-	
-				$this->ftp_log[] = $command;
-				if (is_array($result)) {
-					$this->ftp_log = array_merge($this->ftp_log, $result);
-				}
-	
-				return trim($result);
-			}
-	
+		
 			function chdir($path){
 				if( $path === $this->pwd ){
 					return true;
 				}else{
 					$this->ftp_log[] = 'chdir '.$path;
-					//print $this->command('cd '.$path.'; pwd').'/'."\n";
-					//print $this->command('cd '.$path.'; pwd').'/'."\n";
-					if( $this->command('cd '.$path.'; pwd').'/'===$path ){
-						$this->pwd = $this->command('pwd');
+					if( $this->exec('cd '.$path.'; pwd').'/'===$path ){
+						$this->pwd = $this->exec('pwd');
 						return true;
 					}else{
 						return false;
 					}
 				}
 			}
-	
+		
 			function get($remote_file, $mode=FTP_BINARY, $resume_pos=null)
 			{
 				$remote_file = $this->dir.$remote_file;
-	
+		
 				//check file size
 				$stat = ssh2_sftp_stat($this->sftp, $remote_file);
 				$size = $stat['size'];
@@ -1139,9 +1125,9 @@ if($server_type==='local') {
 					$this->ftp_log[] = 'File too large: '.file_size($size);
 					return false;
 				}
-	
+		
 				$handle = fopen("ssh2.sftp://".$this->sftp."/".$remote_file, 'r');
-	
+		
 				if( $handle ){
 					$data = stream_get_contents($handle, $this->max_size);
 					fclose($handle);
@@ -1151,33 +1137,38 @@ if($server_type==='local') {
 					return false;
 				}
 			}
-	
-			function put($file, $content, $resume_pos=0)
+		
+			function put($file, $content, $resume_pos=-1)
 			{
 				$remote_file = $this->dir.$file;
 				$handle = fopen("ssh2.sftp://".$this->sftp."/".$remote_file, 'w');
+				
+				if ($resume_pos!=-1) {
+					fseek($handle, $resume_pos);
+				}
+
 				return fwrite($handle , $content);
 			}
-	
+		
 			function last_modified($file){
 				$remote_file = $this->dir.$file;
 				$stat = ssh2_sftp_stat($this->sftp, $remote_file);
 				return $stat['mtime'];
 			}
-	
+		
 			function size($file){
 				$remote_file = $this->dir.$file;
 				$stat = ssh2_sftp_stat($this->sftp, $remote_file);
 				return $stat['size'];
 			}
-	
+		
 			function is_dir($dir)
 			{
 				$dir = $this->dir.$dir;
-	
+		
 				// Get the current working directory
-				$origin = $this->command('pwd');
-	
+				$origin = $this->exec('pwd');
+		
 				// Attempt to change directory, suppress errors
 				if (@$this->chdir($dir))
 				{
@@ -1185,16 +1176,16 @@ if($server_type==='local') {
 					$this->chdir($origin);
 					return true;
 				}
-	
+		
 				// Directory does not exist
 				return false;
 			}
-	
+		
 			function file_exists($file)
 			{
 				$file = $this->dir.$file;
 				$stat = ssh2_sftp_stat($this->sftp, $file);
-	
+		
 				if($stat['size'] == '-1'){
 					//folder?
 					if($this->chdir($file)){
@@ -1205,49 +1196,54 @@ if($server_type==='local') {
 					return true;
 				}
 			}
-
-			function chmod($mode, $file)
+		
+			function chmod($mode,$file)
 			{
 				$file = $this->dir.$file;
-				return ssh2_sftp_chmod($this->sftp, $file, (int)$mode);
+		
+				return ssh2_sftp_chmod($this->sftp, $file, $mode);
 			}
-	
+		
 			function rename($old_name, $new_name)
 			{
 				$old_name = $this->dir.$old_name;
 				$new_name = $this->dir.$new_name;
-	
+		
 				return ssh2_sftp_rename($this->sftp, $old_name, $new_name);
 			}
-	
+		
 			function mkdir($dir)
 			{
 				$dir = $this->dir.$dir;
 				return ssh2_sftp_mkdir($this->sftp, $dir) !== false ? true : false;
 			}
-	
+		
 			function delete($file)
 			{
 				if( !$file ){
 					$this->ftp_log[]='no file';
 					return false;
 				}
-	
+		
 				$path = $this->dir.$file;
-	
+		
 				if( $this->is_dir($file) ){
 					$list = $this->parse_raw_list($file);
+					if (!is_array($list)) {
+						return false;
+					}
+					
 					foreach ($list as $item){
 						if( $item['name'] != '..' && $item['name'] != '.' ){
 							$this->delete($file.'/'.$item['name']);
 						}
 					}
-	
+		
 					if( !$this->chdir(dirname($path)) ){
 						return false;
 					}
-	
-					$this->log('rmdir '.$file);
+		
+					$this->ftp_log[]= 'rmdir '.$path;
 					if( !ssh2_sftp_rmdir($this->sftp, basename($path)) ){
 						return false;
 					}else{
@@ -1255,147 +1251,175 @@ if($server_type==='local') {
 					}
 				}else{
 					if( $this->file_exists($file) ){
-						$this->log('delete '.$file);
+						$this->ftp_log[]='delete '.$path;
 						return ssh2_sftp_unlink($this->sftp, $path);
 					}
 				}
 			}
-	
+		
 			function chmod_num($permissions)
 			{
 				$mode = 0;
-	
+		
 				if ($permissions[1] == 'r') $mode += 0400;
 				if ($permissions[2] == 'w') $mode += 0200;
 				if ($permissions[3] == 'x') $mode += 0100;
 				else if ($permissions[3] == 's') $mode += 04100;
 				else if ($permissions[3] == 'S') $mode += 04000;
-	
+		
 				if ($permissions[4] == 'r') $mode += 040;
 				if ($permissions[5] == 'w') $mode += 020;
 				if ($permissions[6] == 'x') $mode += 010;
 				else if ($permissions[6] == 's') $mode += 02010;
 				else if ($permissions[6] == 'S') $mode += 02000;
-	
+		
 				if ($permissions[7] == 'r') $mode += 04;
 				if ($permissions[8] == 'w') $mode += 02;
 				if ($permissions[9] == 'x') $mode += 01;
 				else if ($permissions[9] == 't') $mode += 01001;
 				else if ($permissions[9] == 'T') $mode += 01000;
-	
+		
 				return sprintf('%o', $mode);
 			}
-	
-			function parse_raw_list($subdir)
+		
+			function parse_raw_list($subdir='')
 			{
 				$path = $this->dir.$subdir;
-	
+		
 				$items = array();
-				$list = $this->command('cd '.$path.'; ls -al');
-	
+				$list = $this->exec('ls -al '.escapeshellarg($path));
 				$files = explode("\n", $list);
-	
+		
 				// List all the files
 				$i=0;
 				foreach ($files as $folder) {
-					if (substr($folder, 0, 5)==='total') {
+					if (preg_match("/total [\d]+/", $folder)) {
 						continue;
 					}
 					
 					$struc = array();
-	
-					$current = preg_split("/[\s]+/",$folder,9);
-	
+		
+					$current = preg_split("/[\s]+/", $folder, 9);
+		
 					$i = 0;
-	
+		
 					$struc['perms'] = $current[0];
 					$struc['permsn'] = $this->chmod_num($struc['perms']);
 					$struc['number'] = $current[1];
 					$struc['owner'] = $current[2];
-	
+		
 					$struc['group'] = $current[4];
-	
+		
 					$struc['size'] = $current[(count($current)-5)];
 					$struc['month'] = $current[(count($current)-4)];
 					$struc['day'] = $current[(count($current)-3)];
 					$date = $current[(count($current)-2)];
 					$struc['name'] = str_replace('//', '', end($current));
-	
+		
 					if( strlen($date)==4 ){
 						$struc['year'] = $date;
 						$struc['time'] = '00:00';
 					}else{
 						$struc['year'] = date('Y');
-	
+		
 						if( strtotime($struc['month'].' '.$struc['day'])>time() ){
 							$struc['year']--;
 						}
-	
+		
 						$struc['time'] = $date;
 					}
-	
+		
 					$struc['modified'] = strtotime($struc['month'].' '.$struc['day'].' '.$struc['year'].' '.$struc['time']);
-	
+		
 					$struc['raw'] = $folder;
-	
+		
 					if( substr($folder, 0, 1) == "d" ){
 						$struc['type'] = 'folder';
 					}elseif (substr($folder, 0, 1) == "l"){
 						$struc['type'] = 'link';
-						continue;
+						$pos = strpos($struc['name'], ' -> ');
+						
+						if ($pos) {
+							$struc['name'] = substr($struc['name'], 0, $pos);
+						}
 					}else{
 						$struc['type'] = 'file';
 					}
-	
+		
 					if( $struc['name'] ){
 						$items[] = $struc;
 					}
-	
+		
 					$i++;
 				}
-	
+		
 				return $items;
 			}
-	
+		
 			function search_nodes($s, $path)
 			{
-				$list = $this->parse_raw_list($path);
-	
-				if( !$list ){
-					return array();
-				}
-	
-				$items = array();
-	
-				foreach( $list as $v ){
-					if( $v['type']!='file' ){
-						if( $v['name']=='.' or $v['name']=='..' or $v['name']=='.svn' ){
+				$packet_handler = function($string) {
+					global $dir;
+					$items = explode("\n", trim($string));
+					$items = array_unique($items);
+					sort($items);
+					
+					foreach($items as $k=>$v) {
+						if (strstr($v, ':')) {
 							continue;
 						}
-	
-						$arr = $this->search_nodes($s, $path.$v['name'].'/', $file_extensions);
-						$items = array_merge($items, $arr);
-					}else{
-						if( strstr($v['name'], $s) ){
-							$items[] = $path.$v['name'];
-	
-							$this->send_msg($this->startedAt , $path.$v['name']);
+						
+						$v = substr($v, strlen($dir));
+						if ($v) {
+							$this->send_msg($this->startedAt , $v);
 						}
 					}
-				}
-	
-				return $items;
+				};
+				
+				$dir = $this->dir.$path;
+				
+				$this->exec("pkill grep");
+				$this->exec("pkill find");
+				$results = $this->exec('grep -Ilr '.escapeshellarg($s).' '.escapeshellarg($dir));
+				$results .= $this->exec('find '.escapeshellarg($dir).' -name "'.escapeshellarg($s).'*"');
+				$packet_handler($results);
 			}
-	
+		
 			function search($s, $path)
 			{
 				$this->startedAt = time();
 				return $this->search_nodes($s, $path);
 			}
-	
+		
 			function close()
 			{
 			}
+		
+			function exec($command)
+			{
+				$stream = ssh2_exec($this->conn_id, $command);
+		
+				if(!$stream){
+					return false;
+				}
+		
+				stream_set_blocking($stream, true);
+		
+				$result = stream_get_contents($stream);
+		
+				if( substr($command,0 , 5) == 'PASS ' ){
+					$command='PASS ******';
+				}
+		
+				$this->ftp_log[] = $command;
+				
+				if ($result) {
+					$this->ftp_log[] = $result;
+				}
+		
+				return trim($result);
+			}
+
 		}
 	
 	}else if(function_exists('curl_version')) {
@@ -1406,25 +1430,27 @@ if($server_type==='local') {
 			
 			function connect($host, $user, $pass, $port=22, $dir, $options=array())
 			{
-				if (!function_exists('curl_version')) {
+				$this->debug = false;
+				
+				if(!function_exists('curl_version')) {
 					$this->log('PHP curl not loaded');
 					return false;
 				}
 					
-				if( !$host ){
+				if(!$host) {
 					return false;
 				}
 		
-				if( !$port ){
-				    $port = 22;
+				if(!$port) {
+					$port = 22;
 				}
 		
-				$this->ftp_log = array();
 				$this->failed = false;
 		
-				if( !$options['timeout'] ){
+				if(!$options['timeout']) {
 					$options['timeout'] = 10;
 				}
+				$this->timeout = $options['timeout'];
 				
 				$this->host = $host;
 				$this->port = $port;
@@ -1432,10 +1458,10 @@ if($server_type==='local') {
 				
 				$this->curl = curl_init();
 				$this->cd($this->dir);
-				curl_setopt($this->curl, CURLOPT_TIMEOUT, $options['timeout']); 
+				curl_setopt($this->curl, CURLOPT_TIMEOUT, $this->timeout); 
 				curl_setopt($this->curl, CURLOPT_RETURNTRANSFER, 1);
 		
-				if( $options['logon_type']=='key' ){
+				if($options['logon_type']=='key') {
 					global $auth;
 		
 					if( !$auth->user['private_key'] ){
@@ -1462,8 +1488,15 @@ if($server_type==='local') {
 				}
 				
 				$dir = dirname($remote_file);
+				if($dir === '.') {
+					$dir = '';
+				}
+				
 				$files = $this->parse_raw_list($dir);
-		
+				if (!is_array($files)) {
+					return false;
+				}
+				
 				foreach($files as $v) {
 					$this->meta[$dir.'/'.$v['name']] = $v;
 				}
@@ -1477,15 +1510,15 @@ if($server_type==='local') {
 				
 				//check file size
 				$size = $this->size($remote_file);
-				if( $size > $this->max_size ){
-					$this->ftp_log[] = 'File too large: '.file_size($size);
+				if($size > $this->max_size) {
+					$this->log('File too large: '.file_size($size));
 					return false;
 				}
 		
 				$this->cd($path);
 				$data = curl_exec($this->curl);
 		
-				if($data===false){
+				if($data===false) {
 					return false;
 				}
 		
@@ -1499,7 +1532,7 @@ if($server_type==='local') {
 				
 				$tmp = tmpfile();
 				if( fwrite($tmp, $content)===false ){
-					$this->ftp_log[]='can\'t write to filesystem';
+					$this->log('can\'t write to filesystem');
 					return false;
 				}
 				rewind($tmp);
@@ -1509,11 +1542,14 @@ if($server_type==='local') {
 				curl_setopt($this->curl, CURLOPT_INFILESIZE, strlen($content));
 				curl_exec($this->curl);
 				$error_no = curl_errno($this->curl);
-				
 				fclose($tmp);
+
+				$this->curl = curl_init();
+				curl_setopt($this->curl, CURLOPT_TIMEOUT, $this->timeout); 
+				curl_setopt($this->curl, CURLOPT_RETURNTRANSFER, 1);
 				
 				if ($error_no === 0) {
-					return true;	
+					return true;
 				} else {
 					$this->log(curl_error($this->curl));
 					return false;
@@ -1547,7 +1583,7 @@ if($server_type==='local') {
 			function chmod($mode, $file)
 			{
 				$path = $this->dir.$file;
-				return $this->command('chmod '.$mode.' "'.$path.'"');
+				return $this->exec('chmod '.$mode.' "'.$path.'"');
 			}
 		
 			function rename($old_name, $new_name)
@@ -1555,47 +1591,49 @@ if($server_type==='local') {
 				$old_name = $this->dir.$old_name;
 				$new_name = $this->dir.$new_name;
 		
-				return $this->command('rename "'.$old_name.'" "'.$new_name.'"');
+				return $this->exec('rename "'.$old_name.'" "'.$new_name.'"');
 			}
 		
 			function mkdir($dir)
 			{
 				$path = $this->dir.$dir;
-				return $this->command('mkdir "'.$path.'"');
+				return $this->exec('mkdir "'.$path.'"');
 			}
 		
 			function delete($file)
 			{
 				if( !$file ){
-					$this->ftp_log[]='no file';
+					$this->log('no file');
 					return false;
 				}
 		
 				$path = $this->dir.$file;
 		
-				if( $this->is_dir($file) ){
+				if($this->is_dir($file)) {
 					$list = $this->parse_raw_list($file);
+					if (!is_array($list)) {
+						return false;
+					}
+					
 					foreach ($list as $item){
 						if( $item['name'] != '..' && $item['name'] != '.' ){
-							return $this->command('rm "'.$file.'/'.$item['name'].'"');
+							return $this->exec('rm "'.$file.'/'.$item['name'].'"');
 						}
 					}
 		
-					$this->log('rmdir '.$path);
-					if( !$this->command('rmdir "'.$path.'"') ){
+					if(!$this->exec('rmdir "'.$path.'"')) {
 						return false;
-					}else{
+					} else {
 						return true;
 					}
-				}else{
-					if( $this->file_exists($file) ){
-						$this->log('delete '.$file);
-						return $this->command('rm "'.$path.'"');
+				} else {
+					if($this->file_exists($file)) {
+						return $this->exec('rm "'.$path.'"');
 					}
 				}
 			}
 		
-			function parse_raw_list($dir)
+			function parse_raw_list($dir='')
 			{
 				$items = array();
 				
@@ -1607,60 +1645,63 @@ if($server_type==='local') {
 					$this->log(curl_error($this->curl));
 					return false;
 				}
-				
+		
 				$files = explode("\n", $list);
 		
 				// List all the files
 				$i=0;
 				foreach ($files as $folder) {
-		            $struc = array();
+					$struc = array();
 		
-		            $current = preg_split("/[\s]+/",$folder,9);
+					$current = preg_split("/[\s]+/",$folder,9);
 		
-		            $i = 0;
+					$i = 0;
 		
-		            $struc['perms'] = $current[0];
-		            $struc['permsn'] = $this->chmod_num($struc['perms']);
-		            $struc['number'] = $current[1];
-		            $struc['owner'] = $current[2];
+					$struc['perms'] = $current[0];
+					$struc['permsn'] = $this->chmod_num($struc['perms']);
+					$struc['number'] = $current[1];
+					$struc['owner'] = $current[2];
 		
-		            $struc['group'] = $current[4];
+					$struc['group'] = $current[4];
 		
-		            $struc['size'] = $current[(count($current)-5)];
-		            $struc['month'] = $current[(count($current)-4)];
-		            $struc['day'] = $current[(count($current)-3)];
-		            $date = $current[(count($current)-2)];
-		            $struc['name'] = str_replace('//', '', end($current));
+					$struc['size'] = $current[(count($current)-5)];
+					$struc['month'] = $current[(count($current)-4)];
+					$struc['day'] = $current[(count($current)-3)];
+					$date = $current[(count($current)-2)];
+					$struc['name'] = trim(str_replace('//', '', end($current)));
 		
-		            if( strlen($date)==4 ){
-		                $struc['year'] = $date;
-		                $struc['time'] = '00:00';
-		            }else{
-		                $struc['year'] = date('Y');
+					if( strlen($date)==4 ){
+						$struc['year'] = $date;
+						$struc['time'] = '00:00';
+					}else{
+						$struc['year'] = date('Y');
 		
-		                if( strtotime($struc['month'].' '.$struc['day'])>time() ){
-		                    $struc['year']--;
-		                }
+						if( strtotime($struc['month'].' '.$struc['day'])>time() ){
+							$struc['year']--;
+						}
 		
-		                $struc['time'] = $date;
-		            }
+						$struc['time'] = $date;
+					}
 		
-		            $struc['modified'] = strtotime($struc['month'].' '.$struc['day'].' '.$struc['year'].' '.$struc['time']);
+					$struc['modified'] = strtotime($struc['month'].' '.$struc['day'].' '.$struc['year'].' '.$struc['time']);
 		
-		            $struc['raw'] = $folder;
+					$struc['raw'] = $folder;
 		
-		            if( substr($folder, 0, 1) == "d" ){
-		                $struc['type'] = 'folder';
-		            }elseif (substr($folder, 0, 1) == "l"){
-		                $struc['type'] = 'link';
-		                continue;
-		            }else{
-		                $struc['type'] = 'file';
-		            }
+					if( substr($folder, 0, 1) == "d" ){
+						$struc['type'] = 'folder';
+					}elseif (substr($folder, 0, 1) == "l"){
+						$struc['type'] = 'link';
+						
+						if ($pos) {
+							$struc['name'] = substr($struc['name'], 0, $pos);
+						}
+					}else{
+						$struc['type'] = 'file';
+					}
 		
-		            if( $struc['name'] ){
-		                $items[] = $struc;
-		            }
+					if($struc['name']) {
+						$items[] = $struc;
+					}
 		
 					$i++;
 				}
@@ -1670,32 +1711,27 @@ if($server_type==='local') {
 		
 			function search_nodes($s, $path)
 			{
-				$list = $this->parse_raw_list($path);
-		
-				if( !$list ){
-					return array();
-				}
-		
-				$items = array();
-		
-				foreach( $list as $v ){
-					if( $v['type']!='file' ){
-						if( $v['name']=='.' or $v['name']=='..' or $v['name']=='.svn' ){
+				$packet_handler = function($string) {
+					$items = explode("\n", trim($string));
+					$items = array_unique($items);
+					sort($items);
+					
+					foreach($items as $k=>$v) {
+						if (strstr($v, ':')) {
 							continue;
 						}
-		
-						$arr = $this->search_nodes($s, $path.$v['name'].'/');
-						$items = array_merge($items,$arr);
-					}else{
-						if( strstr($v['name'], $s) and in_array(file_ext($v['name'])) ){
-							$items[] = $path.$v['name'];
-		
-							$this->send_msg($this->startedAt , $path.$v['name']);
-						}
+						
+						$v = substr($v, strlen($dir));
+						$this->send_msg($this->startedAt , $v);
 					}
-				}
-		
-				return $items;
+				};
+				
+				$dir = $this->dir.$path;
+				
+				$this->exec("pkill grep");
+				$this->exec("pkill find");
+				$results = $this->exec('grep -Ilr '.escapeshellarg($s).' '.escapeshellarg($dir), $packet_handler);
+				$results .= $this->exec('find '.escapeshellarg($dir).' -name "'.escapeshellarg($s).'*"', $packet_handler);
 			}
 		
 			function search($s, $path)
@@ -1714,55 +1750,40 @@ if($server_type==='local') {
 				}
 			}
 			
-			function command($command)
+			function exec($command)
 			{
-				//print $command;
+				if (!is_array($command)) {
+					$command = array($command);
+				}
+				
+				$this->log($command);
 				
 				// Make curl run our command before the actual operation, ...
-				curl_setopt($this->curl, CURLOPT_QUOTE, array($command));
+				curl_setopt($this->curl, CURLOPT_QUOTE, $command);
 				// ... but do not do any operation at all
 				curl_setopt($this->curl, CURLOPT_NOBODY, 1);
 				
-				/*
-				// Create a temporary file for the log
-				$tmpfile = tmpfile();
-				// Enable logging ...
-				curl_setopt($this->curl, CURLOPT_VERBOSE, true);
-				// ... to the temporary file
-				curl_setopt($this->curl, CURLOPT_STDERR, $tmpfile);
-				*/
+				if ($this->debug) {
+					curl_setopt($this->curl, CURLOPT_VERBOSE, true);
+					$stream_log = fopen('php://temp', 'r+b');
+					curl_setopt($this->curl, CURLOPT_STDERR, $stream_log);
+				}
 				
 				$result = curl_exec($this->curl);
 				$error_no = curl_errno($this->curl);
 				
-				/*
-				if ($result!==false)
-				{
-					// Read the output
-					fseek($tmpfile, 0);
-					$output = stream_get_contents($tmpfile);
-					print $output;
-					// Find the request and its response in the output
-					// Note that in some some cases (SYST command for example),
-					// there can be a curl comment entry (*) between the request entry (>) and
-					// the response entry (<)
-					$pattern = "/> ".preg_quote($command)."\r?\n(?:\* [^\r\n]+\r?\n)*< (\d+ [^\r\n]*)\r?\n/i";
-					if (!preg_match($pattern, $output, $matches)) {
-						trigger_error("Cannot find response to $command in curl log");
-						$result = false;
-					} else {
-						$result = $matches[1];
-					}
-				}
-				
-				// Remove the temporary file
-				fclose($tmpfile);
-				*/
-				
 				if ($error_no === 0) {
 					return true;	
 				} else {
-					$this->log(curl_error($this->curl));
+					if ($this->debug) {
+						//print_r(curl_getinfo($this->curl));
+						rewind($stream_log);
+						$this->log(stream_get_contents($stream_log));
+						fclose($stream_log);
+					} else {
+						$this->log(curl_error($this->curl));
+					}
+					
 					return false;
 				}
 			}
@@ -1784,92 +1805,92 @@ if($server_type==='local') {
  * This class enables the creating, reading, and manipulation
  * of git repositories.
  *
- * @class  Git
+ * @class Git
  */
 class Git {
 
 	/**
-	 * Git executable location
-	 *
-	 * @var string
-	 */
+	* Git executable location
+	*
+	* @var string
+	*/
 	protected static $bin = '/usr/bin/git';
 
 	/**
-	 * Sets git executable path
-	 *
-	 * @param string $path executable location
-	 */
+	* Sets git executable path
+	*
+	* @param string $path executable location
+	*/
 	public static function set_bin($path) {
 		self::$bin = $path;
 	}
 
 	/**
-	 * Gets git executable path
-	 */
+	* Gets git executable path
+	*/
 	public static function get_bin() {
 		return self::$bin;
 	}
 
 	/**
-	 * Sets up library for use in a default Windows environment
-	 */
+	* Sets up library for use in a default Windows environment
+	*/
 	public static function windows_mode() {
 		self::set_bin('git');
 	}
 
 	/**
-	 * Create a new git repository
-	 *
-	 * Accepts a creation path, and, optionally, a source path
-	 *
-	 * @access  public
-	 * @param   string  repository path
-	 * @param   string  directory to source
-	 * @return  GitRepo
-	 */
+	* Create a new git repository
+	*
+	* Accepts a creation path, and, optionally, a source path
+	*
+	* @access public
+	* @param	string repository path
+	* @param	string directory to source
+	* @return GitRepo
+	*/
 	public static function &create($repo_path, $source = null) {
 		return GitRepo::create_new($repo_path, $source);
 	}
 
 	/**
-	 * Open an existing git repository
-	 *
-	 * Accepts a repository path
-	 *
-	 * @access  public
-	 * @param   string  repository path
-	 * @return  GitRepo
-	 */
+	* Open an existing git repository
+	*
+	* Accepts a repository path
+	*
+	* @access public
+	* @param	string repository path
+	* @return GitRepo
+	*/
 	public static function open($repo_path) {
 		return new GitRepo($repo_path);
 	}
 
 	/**
-	 * Clones a remote repo into a directory and then returns a GitRepo object
-	 * for the newly created local repo
-	 *
-	 * Accepts a creation path and a remote to clone from
-	 *
-	 * @access  public
-	 * @param   string  repository path
-	 * @param   string  remote source
-	 * @param   string  reference path
-	 * @return  GitRepo
-	 **/
+	* Clones a remote repo into a directory and then returns a GitRepo object
+	* for the newly created local repo
+	*
+	* Accepts a creation path and a remote to clone from
+	*
+	* @access public
+	* @param	string repository path
+	* @param	string remote source
+	* @param	string reference path
+	* @return GitRepo
+	**/
 	public static function &clone_remote($repo_path, $remote, $reference = null) {
 		return GitRepo::create_new($repo_path, $remote, true, $reference);
 	}
 
 	/**
-	 * Checks if a variable is an instance of GitRepo
-	 *
-	 * Accepts a variable
-	 *
-	 * @access  public
-	 * @param   mixed   variable
-	 * @return  bool
-	 */
+	* Checks if a variable is an instance of GitRepo
+	*
+	* Accepts a variable
+	*
+	* @access public
+	* @param	mixed	variable
+	* @return bool
+	*/
 	public static function is_repo($var) {
 		return (get_class($var) == 'GitRepo');
 	}
@@ -1884,7 +1905,7 @@ class Git {
  * This class enables the creating, reading, and manipulation
  * of a git repository
  *
- * @class  GitRepo
+ * @class GitRepo
  */
 class GitRepo {
 
@@ -1893,16 +1914,16 @@ class GitRepo {
 	protected $envopts = array();
 
 	/**
-	 * Create a new git repository
-	 *
-	 * Accepts a creation path, and, optionally, a source path
-	 *
-	 * @access  public
-	 * @param   string  repository path
-	 * @param   string  directory to source
-	 * @param   string  reference path
-	 * @return  GitRepo
-	 */
+	* Create a new git repository
+	*
+	* Accepts a creation path, and, optionally, a source path
+	*
+	* @access public
+	* @param	string repository path
+	* @param	string directory to source
+	* @param	string reference path
+	* @return GitRepo
+	*/
 	public static function &create_new($repo_path, $source = null, $remote_source = false, $reference = null) {
 		if (is_dir($repo_path) && file_exists($repo_path."/.git") && is_dir($repo_path."/.git")) {
 			throw new Exception('"'.$repo_path.'" is already a git repository');
@@ -1928,15 +1949,15 @@ class GitRepo {
 	}
 
 	/**
-	 * Constructor
-	 *
-	 * Accepts a repository path
-	 *
-	 * @access  public
-	 * @param   string  repository path
-	 * @param   bool    create if not exists?
-	 * @return  void
-	 */
+	* Constructor
+	*
+	* Accepts a repository path
+	*
+	* @access public
+	* @param	string repository path
+	* @param	bool	create if not exists?
+	* @return void
+	*/
 	public function __construct($repo_path = null, $create_new = false, $_init = true) {
 		if (is_string($repo_path)) {
 			$this->set_repo_path($repo_path, $create_new, $_init);
@@ -1944,16 +1965,16 @@ class GitRepo {
 	}
 
 	/**
-	 * Set the repository's path
-	 *
-	 * Accepts the repository path
-	 *
-	 * @access  public
-	 * @param   string  repository path
-	 * @param   bool    create if not exists?
-	 * @param   bool    initialize new Git repo if not exists?
-	 * @return  void
-	 */
+	* Set the repository's path
+	*
+	* Accepts the repository path
+	*
+	* @access public
+	* @param	string repository path
+	* @param	bool	create if not exists?
+	* @param	bool	initialize new Git repo if not exists?
+	* @return void
+	*/
 	public function set_repo_path($repo_path, $create_new = false, $_init = true) {
 		if (is_string($repo_path)) {
 			if ($new_path = realpath($repo_path)) {
@@ -1971,7 +1992,7 @@ class GitRepo {
 						}
 					// Is this a bare repo?
 					} else if (is_file($repo_path."/config")) {
-					  $parse_ini = parse_ini_file($repo_path."/config");
+						$parse_ini = parse_ini_file($repo_path."/config");
 						if ($parse_ini['bare']) {
 							$this->repo_path = $repo_path;
 							$this->bare = true;
@@ -2006,21 +2027,21 @@ class GitRepo {
 	}
 	
 	/**
-	 * Get the path to the git repo directory (eg. the ".git" directory)
-	 * 
-	 * @access public
-	 * @return string
-	 */
+	* Get the path to the git repo directory (eg. the ".git" directory)
+	* 
+	* @access public
+	* @return string
+	*/
 	public function git_directory_path() {
 		return ($this->bare) ? $this->repo_path : $this->repo_path."/.git";
 	}
 
 	/**
-	 * Tests if git is installed
-	 *
-	 * @access  public
-	 * @return  bool
-	 */
+	* Tests if git is installed
+	*
+	* @access public
+	* @return bool
+	*/
 	public function test_git() {
 		$descriptorspec = array(
 			1 => array('pipe', 'w'),
@@ -2040,14 +2061,14 @@ class GitRepo {
 	}
 
 	/**
-	 * Run a command in the git repository
-	 *
-	 * Accepts a shell command to run
-	 *
-	 * @access  protected
-	 * @param   string  command to run
-	 * @return  string
-	 */
+	* Run a command in the git repository
+	*
+	* Accepts a shell command to run
+	*
+	* @access protected
+	* @param	string command to run
+	* @return string
+	*/
 	protected function run_command($command) {
 		$descriptorspec = array(
 			1 => array('pipe', 'w'),
@@ -2055,15 +2076,15 @@ class GitRepo {
 		);
 		$pipes = array();
 		/* Depending on the value of variables_order, $_ENV may be empty.
-		 * In that case, we have to explicitly set the new variables with
-		 * putenv, and call proc_open with env=null to inherit the reset
-		 * of the system.
-		 *
-		 * This is kind of crappy because we cannot easily restore just those
-		 * variables afterwards.
-		 *
-		 * If $_ENV is not empty, then we can just copy it and be done with it.
-		 */
+		* In that case, we have to explicitly set the new variables with
+		* putenv, and call proc_open with env=null to inherit the reset
+		* of the system.
+		*
+		* This is kind of crappy because we cannot easily restore just those
+		* variables afterwards.
+		*
+		* If $_ENV is not empty, then we can just copy it and be done with it.
+		*/
 		if(count($_ENV) === 0) {
 			$env = NULL;
 			foreach($this->envopts as $k => $v) {
@@ -2091,27 +2112,27 @@ class GitRepo {
 	}
 
 	/**
-	 * Run a git command in the git repository
-	 *
-	 * Accepts a git command to run
-	 *
-	 * @access  public
-	 * @param   string  command to run
-	 * @return  string
-	 */
+	* Run a git command in the git repository
+	*
+	* Accepts a git command to run
+	*
+	* @access public
+	* @param	string command to run
+	* @return string
+	*/
 	public function run($command) {
 		return $this->run_command($this->command_prefix.Git::get_bin()." ".$command);
 	}
 
 	/**
-	 * Runs a 'git status' call
-	 *
-	 * Accept a convert to HTML bool
-	 *
-	 * @access public
-	 * @param bool  return string with <br />
-	 * @return string
-	 */
+	* Runs a 'git status' call
+	*
+	* Accept a convert to HTML bool
+	*
+	* @access public
+	* @param bool return string with <br />
+	* @return string
+	*/
 	public function status($html = false) {
 		$msg = $this->run("status");
 		if ($html == true) {
@@ -2121,14 +2142,14 @@ class GitRepo {
 	}
 
 	/**
-	 * Runs a `git add` call
-	 *
-	 * Accepts a list of files to add
-	 *
-	 * @access  public
-	 * @param   mixed   files to add
-	 * @return  string
-	 */
+	* Runs a `git add` call
+	*
+	* Accepts a list of files to add
+	*
+	* @access public
+	* @param	mixed	files to add
+	* @return string
+	*/
 	public function add($files = "*") {
 		if (is_array($files)) {
 			$files = '"'.implode('" "', $files).'"';
@@ -2137,15 +2158,15 @@ class GitRepo {
 	}
 
 	/**
-	 * Runs a `git rm` call
-	 *
-	 * Accepts a list of files to remove
-	 *
-	 * @access  public
-	 * @param   mixed    files to remove
-	 * @param   Boolean  use the --cached flag?
-	 * @return  string
-	 */
+	* Runs a `git rm` call
+	*
+	* Accepts a list of files to remove
+	*
+	* @access public
+	* @param	mixed	files to remove
+	* @param	Boolean use the --cached flag?
+	* @return string
+	*/
 	public function rm($files = "*", $cached = false) {
 		if (is_array($files)) {
 			$files = '"'.implode('" "', $files).'"';
@@ -2155,110 +2176,110 @@ class GitRepo {
 
 
 	/**
-	 * Runs a `git commit` call
-	 *
-	 * Accepts a commit message string
-	 *
-	 * @access  public
-	 * @param   string  commit message
-	 * @param   boolean  should all files be committed automatically (-a flag)
-	 * @return  string
-	 */
+	* Runs a `git commit` call
+	*
+	* Accepts a commit message string
+	*
+	* @access public
+	* @param	string commit message
+	* @param	boolean should all files be committed automatically (-a flag)
+	* @return string
+	*/
 	public function commit($message = "", $commit_all = true) {
 		$flags = $commit_all ? '-av' : '-v';
 		return $this->run("commit ".$flags." -m ".escapeshellarg($message));
 	}
 
 	/**
-	 * Runs a `git clone` call to clone the current repository
-	 * into a different directory
-	 *
-	 * Accepts a target directory
-	 *
-	 * @access  public
-	 * @param   string  target directory
-	 * @return  string
-	 */
+	* Runs a `git clone` call to clone the current repository
+	* into a different directory
+	*
+	* Accepts a target directory
+	*
+	* @access public
+	* @param	string target directory
+	* @return string
+	*/
 	public function clone_to($target) {
 		return $this->run("clone --local ".$this->repo_path." $target");
 	}
 
 	/**
-	 * Runs a `git clone` call to clone a different repository
-	 * into the current repository
-	 *
-	 * Accepts a source directory
-	 *
-	 * @access  public
-	 * @param   string  source directory
-	 * @return  string
-	 */
+	* Runs a `git clone` call to clone a different repository
+	* into the current repository
+	*
+	* Accepts a source directory
+	*
+	* @access public
+	* @param	string source directory
+	* @return string
+	*/
 	public function clone_from($source) {
 		return $this->run("clone --local $source ".$this->repo_path);
 	}
 
 	/**
-	 * Runs a `git clone` call to clone a remote repository
-	 * into the current repository
-	 *
-	 * Accepts a source url
-	 *
-	 * @access  public
-	 * @param   string  source url
-	 * @param   string  reference path
-	 * @return  string
-	 */
+	* Runs a `git clone` call to clone a remote repository
+	* into the current repository
+	*
+	* Accepts a source url
+	*
+	* @access public
+	* @param	string source url
+	* @param	string reference path
+	* @return string
+	*/
 	public function clone_remote($source, $reference) {
 		return $this->run("clone $reference $source ".$this->repo_path);
 	}
 
 	/**
-	 * Runs a `git clean` call
-	 *
-	 * Accepts a remove directories flag
-	 *
-	 * @access  public
-	 * @param   bool    delete directories?
-	 * @param   bool    force clean?
-	 * @return  string
-	 */
+	* Runs a `git clean` call
+	*
+	* Accepts a remove directories flag
+	*
+	* @access public
+	* @param	bool	delete directories?
+	* @param	bool	force clean?
+	* @return string
+	*/
 	public function clean($dirs = false, $force = false) {
 		return $this->run("clean".(($force) ? " -f" : "").(($dirs) ? " -d" : ""));
 	}
 
 	/**
-	 * Runs a `git branch` call
-	 *
-	 * Accepts a name for the branch
-	 *
-	 * @access  public
-	 * @param   string  branch name
-	 * @return  string
-	 */
+	* Runs a `git branch` call
+	*
+	* Accepts a name for the branch
+	*
+	* @access public
+	* @param	string branch name
+	* @return string
+	*/
 	public function create_branch($branch) {
 		return $this->run("branch $branch");
 	}
 
 	/**
-	 * Runs a `git branch -[d|D]` call
-	 *
-	 * Accepts a name for the branch
-	 *
-	 * @access  public
-	 * @param   string  branch name
-	 * @return  string
-	 */
+	* Runs a `git branch -[d|D]` call
+	*
+	* Accepts a name for the branch
+	*
+	* @access public
+	* @param	string branch name
+	* @return string
+	*/
 	public function delete_branch($branch, $force = false) {
 		return $this->run("branch ".(($force) ? '-D' : '-d')." $branch");
 	}
 
 	/**
-	 * Runs a `git branch` call
-	 *
-	 * @access  public
-	 * @param   bool    keep asterisk mark on active branch
-	 * @return  array
-	 */
+	* Runs a `git branch` call
+	*
+	* @access public
+	* @param	bool	keep asterisk mark on active branch
+	* @return array
+	*/
 	public function list_branches($keep_asterisk = false) {
 		$branchArray = explode("\n", $this->run("branch"));
 		foreach($branchArray as $i => &$branch) {
@@ -2274,13 +2295,13 @@ class GitRepo {
 	}
 
 	/**
-	 * Lists remote branches (using `git branch -r`).
-	 *
-	 * Also strips out the HEAD reference (e.g. "origin/HEAD -> origin/master").
-	 *
-	 * @access  public
-	 * @return  array
-	 */
+	* Lists remote branches (using `git branch -r`).
+	*
+	* Also strips out the HEAD reference (e.g. "origin/HEAD -> origin/master").
+	*
+	* @access public
+	* @return array
+	*/
 	public function list_remote_branches() {
 		$branchArray = explode("\n", $this->run("branch -r"));
 		foreach($branchArray as $i => &$branch) {
@@ -2293,12 +2314,12 @@ class GitRepo {
 	}
 
 	/**
-	 * Returns name of active branch
-	 *
-	 * @access  public
-	 * @param   bool    keep asterisk mark on branch name
-	 * @return  string
-	 */
+	* Returns name of active branch
+	*
+	* @access public
+	* @param	bool	keep asterisk mark on branch name
+	* @return string
+	*/
 	public function active_branch($keep_asterisk = false) {
 		$branchArray = $this->list_branches(true);
 		$active_branch = preg_grep("/^\*/", $branchArray);
@@ -2311,50 +2332,50 @@ class GitRepo {
 	}
 
 	/**
-	 * Runs a `git checkout` call
-	 *
-	 * Accepts a name for the branch
-	 *
-	 * @access  public
-	 * @param   string  branch name
-	 * @return  string
-	 */
+	* Runs a `git checkout` call
+	*
+	* Accepts a name for the branch
+	*
+	* @access public
+	* @param	string branch name
+	* @return string
+	*/
 	public function checkout($branch) {
 		return $this->run("checkout $branch");
 	}
 
 	/**
-	 * Runs a `git merge` call
-	 *
-	 * Accepts a name for the branch to be merged
-	 *
-	 * @access  public
-	 * @param   string $branch
-	 * @return  string
-	 */
+	* Runs a `git merge` call
+	*
+	* Accepts a name for the branch to be merged
+	*
+	* @access public
+	* @param	string $branch
+	* @return string
+	*/
 	public function merge($branch) {
 		return $this->run("merge $branch --no-ff");
 	}
 
 	/**
-	 * Runs a git fetch on the current branch
-	 *
-	 * @access  public
-	 * @return  string
-	 */
+	* Runs a git fetch on the current branch
+	*
+	* @access public
+	* @return string
+	*/
 	public function fetch() {
 		return $this->run("fetch");
 	}
 
 	/**
-	 * Add a new tag on the current position
-	 *
-	 * Accepts the name for the tag and the message
-	 *
-	 * @param string $tag
-	 * @param string $message
-	 * @return string
-	 */
+	* Add a new tag on the current position
+	*
+	* Accepts the name for the tag and the message
+	*
+	* @param string $tag
+	* @param string $message
+	* @return string
+	*/
 	public function add_tag($tag, $message = null) {
 		if ($message === null) {
 			$message = $tag;
@@ -2363,14 +2384,14 @@ class GitRepo {
 	}
 
 	/**
-	 * List all the available repository tags.
-	 *
-	 * Optionally, accept a shell wildcard pattern and return only tags matching it.
-	 *
-	 * @access	public
-	 * @param	string	$pattern	Shell wildcard pattern to match tags against.
-	 * @return	array				Available repository tags.
-	 */
+	* List all the available repository tags.
+	*
+	* Optionally, accept a shell wildcard pattern and return only tags matching it.
+	*
+	* @access	public
+	* @param	string	$pattern	Shell wildcard pattern to match tags against.
+	* @return	array				Available repository tags.
+	*/
 	public function list_tags($pattern = null) {
 		$tagArray = explode("\n", $this->run("tag -l $pattern"));
 		foreach ($tagArray as $i => &$tag) {
@@ -2384,37 +2405,37 @@ class GitRepo {
 	}
 
 	/**
-	 * Push specific branch to a remote
-	 *
-	 * Accepts the name of the remote and local branch
-	 *
-	 * @param string $remote
-	 * @param string $branch
-	 * @return string
-	 */
+	* Push specific branch to a remote
+	*
+	* Accepts the name of the remote and local branch
+	*
+	* @param string $remote
+	* @param string $branch
+	* @return string
+	*/
 	public function push($remote, $branch) {
 		return $this->run("push --tags $remote $branch");
 	}
 
 	/**
-	 * Pull specific branch from remote
-	 *
-	 * Accepts the name of the remote and local branch
-	 *
-	 * @param string $remote
-	 * @param string $branch
-	 * @return string
-	 */
+	* Pull specific branch from remote
+	*
+	* Accepts the name of the remote and local branch
+	*
+	* @param string $remote
+	* @param string $branch
+	* @return string
+	*/
 	public function pull($remote, $branch) {
 		return $this->run("pull $remote $branch");
 	}
 
 	/**
-	 * List log entries.
-	 *
-	 * @param strgin $format
-	 * @return string
-	 */
+	* List log entries.
+	*
+	* @param strgin $format
+	* @return string
+	*/
 	public function log($format = null) {
 		if ($format === null)
 			return $this->run('log');
@@ -2423,31 +2444,31 @@ class GitRepo {
 	}
 
 	/**
-	 * Sets the project description.
-	 *
-	 * @param string $new
-	 */
+	* Sets the project description.
+	*
+	* @param string $new
+	*/
 	public function set_description($new) {
 		$path = $this->git_directory_path();
 		file_put_contents($path."/description", $new);
 	}
 
 	/**
-	 * Gets the project description.
-	 *
-	 * @return string
-	 */
+	* Gets the project description.
+	*
+	* @return string
+	*/
 	public function get_description() {
 		$path = $this->git_directory_path();
 		return file_get_contents($path."/description");
 	}
 
 	/**
-	 * Sets custom environment options for calling Git
-	 *
-	 * @param string key
-	 * @param string value
-	 */
+	* Sets custom environment options for calling Git
+	*
+	* @param string key
+	* @param string value
+	*/
 	public function setenv($key, $value) {
 		$this->envopts[$key] = $value;
 	}
@@ -2503,13 +2524,13 @@ function get_nodes($path, $paths)
 			}
 
 			$files[$i] = array(
-				'id' => $path.$name,
-				'text' => $name,
+				'id' => (string)$path.$name,
+				'text' => (string)$name,
 				'type' => 'folder',
 				'children' => true,
 				'data' => array(
 					'perms' => $v['permsn'],
-					'modified' =>  $v['modified'],
+					'modified' => $v['modified'],
 					'size' => -1
 				)
 			);
@@ -2544,7 +2565,7 @@ function get_nodes($path, $paths)
 				'children' => false,
 				'data' => array(
 					'perms' => $v['permsn'],
-					'modified' =>  $v['modified'],
+					'modified' => $v['modified'],
 					'size' => (int)$v['size']
 				)
 			);
@@ -2746,9 +2767,21 @@ switch( $_POST['cmd'] ){
 	case 'open':
 		$response['content'] = $server->get($_POST['file']);
 	break;
+	
+	case 'search':
+		ob_end_clean();
+		header('Content-Type: text/event-stream');
+		header('Cache-Control: no-cache');
+		//print_r(ob_get_status());
+		$server->search($_GET['s'], $_GET['path']);
+		$server->close();
+		exit;
+	break;
 
 	case 'get':
 	case 'list':
+		session_write_close();
+		
 		if( $_POST['path'] and substr($_POST['path'],-1)!=='/' ){
 			$_POST['path'].='/';
 		}
@@ -2760,26 +2793,14 @@ switch( $_POST['cmd'] ){
 		}
 
 		if( $_POST['path']=='' and $_GET['path'] ){ //used by save as
-			$response['files'] = get_nodes($_POST['path'], array(dirname($_GET['path']).'/'));
+			$response['files'] = get_nodes($_GET['path'], array(dirname($_GET['path']).'/'));
 		}else{ //preload paths
 			$response['files'] = get_nodes($_POST['path'], $_SESSION['paths']);
 		}
 
-		/*
-		//include root
-		if( $_POST['path'] == '' and $_GET['root']==='false' ){
-			$root[0] = array(
-				'text' => $site['dir'],
-				'disabled' => false,
-				'leaf' => false,
-				'modified' => '',
-				'size' => -1
-				'expanded' => true,
-				'children' => $response['files']
-			);
-
-			$response['files'] = $root;
-		}*/
+		if( $response['files'] === false ){
+			$response['error'] = 'Error getting files: '.end($server->ftp_log);
+		}
 	break;
 
 	case 'list_all':
@@ -2801,7 +2822,7 @@ switch( $_POST['cmd'] ){
 		$new_name = $_POST['newname'];
 
 		if( !$server->rename($old_name, $new_name) ){
-   			$response['error'] = 'Cannot rename file';
+			$response['error'] = 'Cannot rename file';
 		}
 	break;
 
@@ -2809,7 +2830,7 @@ switch( $_POST['cmd'] ){
 		$dir = $_POST['dir'];
 
 		if( !$server->mkdir($dir) ){
-   			$response['error'] = 'Cannot create dir';
+			$response['error'] = 'Cannot create dir';
 		}
 	break;
 
@@ -2817,14 +2838,14 @@ switch( $_POST['cmd'] ){
 		$content='';
 
 		if( !$server->put($_POST['file'], $content) ){
-   			$response['error'] = 'Cannot create file';
+			$response['error'] = 'Cannot create file';
 		}
 	break;
 
 	case 'duplicate':
 	case 'paste':
 		if( !$_POST['dest'] or !$_POST['path'] ){
-   			$response['error'] = 'Cannot create file';
+			$response['error'] = 'Cannot create file';
 		}else{
 			$server_src = $server;
 
@@ -3129,7 +3150,7 @@ switch( $_POST['cmd'] ){
 	
 	case 'git_info':
 		try {
-			$git = Git::open(dirname(__FILE__));  // -or- Git::create('/path/to/repo')
+			$git = Git::open(dirname(__FILE__)); // -or- Git::create('/path/to/repo')
 		} catch (exception $e) {
 			$response['error'] = $e->getMessage();
 			break;
@@ -3163,6 +3184,26 @@ switch( $_POST['cmd'] ){
 				'author' => $arr[1],
 				'date' => $arr[2],
 				'subject' => $arr[3],
+			);
+		}
+		
+		// stashes
+		try {
+			$raw = $git->run("stash list");
+		} catch (exception $e) {
+			$response['error'] = $e->getMessage();
+			break;
+		}
+		
+		$lines = explode("\n", trim($raw));
+		
+		$response['stashes'] = array();
+		foreach($lines as $v) {
+			preg_match('/stash@{([0-9]+)}: (.*)/', $v, $matches);
+			
+			$response['stashes'][] = array(
+				'index' => $matches[1],
+				'name' => $matches[2],
 			);
 		}
 		
@@ -3214,7 +3255,7 @@ switch( $_POST['cmd'] ){
 	
 	case 'config':
 		try {
-			$git = Git::open(dirname(__FILE__));  // -or- Git::create('/path/to/repo')
+			$git = Git::open(dirname(__FILE__)); // -or- Git::create('/path/to/repo')
 		} catch (exception $e) {
 			$response['error'] = $e->getMessage();
 			break;
@@ -3232,7 +3273,7 @@ switch( $_POST['cmd'] ){
 	
 	case 'clone':
 		try {
-			$git = Git::open(dirname(__FILE__));  // -or- Git::create('/path/to/repo')
+			$git = Git::open(dirname(__FILE__)); // -or- Git::create('/path/to/repo')
 		} catch (exception $e) {
 			$response['error'] = $e->getMessage();
 			break;
@@ -3254,7 +3295,7 @@ switch( $_POST['cmd'] ){
 	
 	case 'checkout':
 		try {
-			$git = Git::open(dirname(__FILE__));  // -or- Git::create('/path/to/repo')
+			$git = Git::open(dirname(__FILE__)); // -or- Git::create('/path/to/repo')
 		} catch (exception $e) {
 			$response['error'] = $e->getMessage();
 			break;
@@ -3271,7 +3312,7 @@ switch( $_POST['cmd'] ){
 	
 	case 'discard':
 		try {
-			$git = Git::open(dirname(__FILE__));  // -or- Git::create('/path/to/repo')
+			$git = Git::open(dirname(__FILE__)); // -or- Git::create('/path/to/repo')
 		} catch (exception $e) {
 			$response['error'] = $e->getMessage();
 			break;
@@ -3314,7 +3355,7 @@ switch( $_POST['cmd'] ){
 	
 	case 'create_branch':
 		try {
-			$git = Git::open(dirname(__FILE__));  // -or- Git::create('/path/to/repo')
+			$git = Git::open(dirname(__FILE__)); // -or- Git::create('/path/to/repo')
 		} catch (exception $e) {
 			$response['error'] = $e->getMessage();
 			break;
@@ -3322,7 +3363,8 @@ switch( $_POST['cmd'] ){
 		
 		if (trim($_GET['name']) and trim($_GET['from'])) {
 			try {
-				$raw = $git->run('checkout -b '.$_GET['name'].' '.$_GET['from']);
+				$raw = $git->run('checkout -b '.$_GET['name'] . ' ' . $_GET['from']);
+				$raw = $git->run('branch --set-upstream-to=origin/' . $_GET['name']);
 			} catch (exception $e) {
 				$response['error'] = $e->getMessage();
 				break;
@@ -3332,7 +3374,7 @@ switch( $_POST['cmd'] ){
 	
 	case 'delete_branch':
 		try {
-			$git = Git::open(dirname(__FILE__));  // -or- Git::create('/path/to/repo')
+			$git = Git::open(dirname(__FILE__)); // -or- Git::create('/path/to/repo')
 		} catch (exception $e) {
 			$response['error'] = $e->getMessage();
 			break;
@@ -3353,9 +3395,27 @@ switch( $_POST['cmd'] ){
 		}
 	break;
 	
-	case 'commit':
+	case 'revert':
 		try {
 			$git = Git::open(dirname(__FILE__));  // -or- Git::create('/path/to/repo')
+		} catch (exception $e) {
+			$response['error'] = $e->getMessage();
+			break;
+		}
+		
+		if (trim($_GET['hash'])) {
+			try {
+				$raw = $git->run('revert '.$_GET['hash']);
+			} catch (exception $e) {
+				$response['error'] = $e->getMessage();
+				break;
+			}
+		}
+	break;
+	
+	case 'commit':
+		try {
+			$git = Git::open(dirname(__FILE__)); // -or- Git::create('/path/to/repo')
 		} catch (exception $e) {
 			$response['error'] = $e->getMessage();
 			break;
@@ -3376,7 +3436,7 @@ switch( $_POST['cmd'] ){
 	
 	case 'diff':
 		try {
-			$git = Git::open(dirname(__FILE__));  // -or- Git::create('/path/to/repo')
+			$git = Git::open(dirname(__FILE__)); // -or- Git::create('/path/to/repo')
 		} catch (exception $e) {
 			$response['error'] = $e->getMessage();
 			break;
@@ -3395,7 +3455,7 @@ switch( $_POST['cmd'] ){
 	
 	case 'show':
 		try {
-			$git = Git::open(dirname(__FILE__));  // -or- Git::create('/path/to/repo')
+			$git = Git::open(dirname(__FILE__)); // -or- Git::create('/path/to/repo')
 		} catch (exception $e) {
 			$response['error'] = $e->getMessage();
 			break;
@@ -3411,9 +3471,73 @@ switch( $_POST['cmd'] ){
 		}
 	break;
 	
+	case 'stash_push':
+		try {
+			$git = Git::open(dirname(__FILE__)); // -or- Git::create('/path/to/repo')
+		} catch (exception $e) {
+			$response['error'] = $e->getMessage();
+			break;
+		}
+		
+		try {
+			$response['result'] = $git->run('stash push ' . ($_POST['subject'] ? '-m "'.addslashes($_POST['subject']).'"' : ''));
+		} catch (exception $e) {
+			$response['error'] = $e->getMessage();
+			break;
+		}
+	break;
+	
+	case 'stash_show':
+		try {
+			$git = Git::open(dirname(__FILE__)); // -or- Git::create('/path/to/repo')
+		} catch (exception $e) {
+			$response['error'] = $e->getMessage();
+			break;
+		}
+		
+		try {
+			$response['result'] = $git->run('--no-pager stash show -p stash@{' . (int)$_GET['index']  . '}');
+		} catch (exception $e) {
+			$response['error'] = $e->getMessage();
+			break;
+		}
+	break;
+	
+	case 'stash_apply':
+		try {
+			$git = Git::open(dirname(__FILE__)); // -or- Git::create('/path/to/repo')
+		} catch (exception $e) {
+			$response['error'] = $e->getMessage();
+			break;
+		}
+		
+		try {
+			$response['result'] = $git->run('stash apply stash@{' . (int)$_GET['index']  . '}');
+		} catch (exception $e) {
+			$response['error'] = $e->getMessage();
+			break;
+		}
+	break;
+	
+	case 'stash_drop':
+		try {
+			$git = Git::open(dirname(__FILE__)); // -or- Git::create('/path/to/repo')
+		} catch (exception $e) {
+			$response['error'] = $e->getMessage();
+			break;
+		}
+		
+		try {
+			$response['result'] = $git->run('stash drop stash@{' . (int)$_GET['index']  . '}');
+		} catch (exception $e) {
+			$response['error'] = $e->getMessage();
+			break;
+		}
+	break;
+	
 	case 'sync':
 		try {
-			$git = Git::open(dirname(__FILE__));  // -or- Git::create('/path/to/repo')
+			$git = Git::open(dirname(__FILE__)); // -or- Git::create('/path/to/repo')
 		} catch (exception $e) {
 			$response['error'] = $e->getMessage();
 			break;
@@ -3422,6 +3546,8 @@ switch( $_POST['cmd'] ){
 		try {
 			$response['result'] = $git->run('pull');
 		} catch (exception $e) {
+			$response['error'] = $e->getMessage();
+			break;
 		}
 		
 		try {
@@ -3441,4 +3567,3 @@ $response['success'] = ($response['error']) ? false : true;
 print json_encode($response);
 
 $server->close();
-?>
